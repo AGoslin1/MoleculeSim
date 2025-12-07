@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Molecule Viewer</title>
+    <script src="3Dmol.js"></script>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            background: #121212;
+            color: #eee;
+            font-family: Arial, sans-serif;
+        }
+
+        #topbar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 46px;
+            background: #1e1e1e;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            box-sizing: border-box;
+            border-bottom: 1px solid #333;
+        }
+
+        .tabbtn {
+            background: #2a2a2a;
+            color: #ccc;
+            border: 1px solid #444;
+            padding: 6px 12px;
+            cursor: pointer;
+            font-size: 13px;
+            border-radius: 4px;
+        }
+
+            .tabbtn:hover {
+                background: #3a3a3a;
+                color: #fff;
+            }
+
+            .tabbtn.active {
+                background: #4a4a4a;
+                color: #fff;
+            }
+
+        #formulaInput {
+            background: #222;
+            border: 1px solid #444;
+            color: #eee;
+            padding: 6px 8px;
+            border-radius: 4px;
+            width: 140px;
+            font-size: 13px;
+        }
+
+        #btnFormula, .isoBtn {
+            background: #2b2b2b;
+            border: 1px solid #444;
+            color: #ddd;
+            padding: 6px 10px;
+            cursor: pointer;
+            font-size: 13px;
+            border-radius: 4px;
+        }
+
+            #btnFormula:hover, .isoBtn:hover {
+                background: #3a3a3a;
+            }
+
+        #viewer {
+            position: absolute;
+            top: 46px;
+            left: 0;
+            right: 260px;
+            bottom: 0;
+        }
+
+        #hud {
+            position: absolute;
+            top: 52px;
+            right: 270px;
+            background: #1e1e1e;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 10;
+        }
+
+        #sidepanel {
+            position: absolute;
+            top: 46px;
+            right: 0;
+            bottom: 0;
+            width: 260px;
+            background: #1a1a1a;
+            border-left: 1px solid #333;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            padding: 8px;
+            overflow: auto;
+        }
+
+        #isoHeader {
+            font-size: 13px;
+            margin: 0 0 6px 0;
+            font-weight: bold;
+        }
+
+        .isoEntry {
+            margin-bottom: 6px;
+        }
+
+        .msg {
+            font-size: 12px;
+            color: #bbb;
+            margin: 4px 0;
+        }
+
+        .sep {
+            height: 1px;
+            background: #333;
+            margin: 8px 0;
+        }
+
+        #statusLine {
+            font-size: 11px;
+            color: #888;
+            margin-top: auto;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: default;
+        }
+    </style>
+</head>
+<body>
+    <div id="topbar">
+        <button class="tabbtn active" data-smiles="O">H2O</button>
+        <button class="tabbtn" data-smiles="[H][H]">H2</button>
+        <button class="tabbtn" data-smiles="O=C=O">CO2</button>
+        <button class="tabbtn" data-smiles="C">CH4</button>
+        <div style="width:1px; height:28px; background:#333; margin:0 4px;"></div>
+        <input id="formulaInput" placeholder="Formula (e.g. C4H10)" />
+        <button id="btnFormula">Search</button>
+    </div>
+
+    <div id="viewer"></div>
+    <div id="hud">Waiting...</div>
+
+    <div id="sidepanel">
+        <p id="isoHeader">Isomers</p>
+        <div id="isoResults" class="msg">Enter a formula and press Search.</div>
+        <div class="sep"></div>
+        <div id="statusLine">Idle</div>
+    </div>
+
+    <script>
+        let viewer = null;
+        let model = null;
+        let atomsCache = [];
+
+        function ensureViewer() {
+            if (viewer) return true;
+            if (typeof $3Dmol === 'undefined') {
+                setHUD('Loading 3Dmol.js...');
+                return false;
+            }
+            viewer = $3Dmol.createViewer(document.getElementById('viewer'), {
+                backgroundColor: '#121212'
+            });
+            return true;
+        }
+
+        function setHUD(text) {
+            document.getElementById('hud').textContent = text;
+        }
+
+        function buildModel(frame) {
+            atomsCache = frame.atoms.map(a => ({
+                elem: a.element,
+                x: a.x,
+                y: a.y,
+                z: a.z
+            }));
+            model = viewer.addModel();
+            model.addAtoms(atomsCache);
+            frame.atoms.forEach((a, i) => {
+                model.setStyle({ index: i }, {
+                    sphere: { color: a.color || '#FFFFFF', radius: a.radius || 0.3 }
+                });
+            });
+            viewer.zoomTo();
+            viewer.render();
+        }
+
+        function updateModel(frame) {
+            frame.atoms.forEach((a, i) => {
+                atomsCache[i].x = a.x;
+                atomsCache[i].y = a.y;
+                atomsCache[i].z = a.z;
+            });
+            model.setCoordinates(atomsCache);
+            viewer.render();
+        }
+
+        function handleFrame(frame) {
+            if (!ensureViewer()) return;
+            if (frame.reset || !model) {
+                viewer.clear();
+                model = null;
+                buildModel(frame);
+            } else {
+                updateModel(frame);
+            }
+            setHUD('Step ' + frame.step);
+        }
+
+        function renderIsomers(payload) {
+            const container = document.getElementById('isoResults');
+            container.innerHTML = '';
+            if (payload.error) {
+                container.textContent = 'Error: ' + payload.error;
+                return;
+            }
+            if (!payload.isomers || payload.isomers.length === 0) {
+                container.textContent = 'No isomers found.';
+                return;
+            }
+            payload.isomers.forEach(iso => {
+                const div = document.createElement('div');
+                div.className = 'isoEntry';
+                const btn = document.createElement('button');
+                btn.className = 'isoBtn';
+                btn.textContent = (iso.name ? iso.name : 'Isomer') +
+                    ' [' + iso.smiles + ']';
+                btn.onclick = () => {
+                    postMessage({ cmd: 'loadSmiles', smiles: iso.smiles });
+                };
+                div.appendChild(btn);
+                container.appendChild(div);
+            });
+        }
+
+        function postMessage(obj) {
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage(obj);
+                document.getElementById('statusLine').textContent =
+                    'Sent: ' + obj.cmd;
+            }
+        }
+
+        // Tabs (predefined molecules)
+        document.querySelectorAll('.tabbtn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.tabbtn')
+                    .forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                const smiles = btn.getAttribute('data-smiles');
+                postMessage({ cmd: 'loadSmiles', smiles });
+            });
+        });
+
+        // Formula search
+        document.getElementById('btnFormula').addEventListener('click', () => {
+            const f = document.getElementById('formulaInput').value.trim();
+            if (!f) return;
+            document.getElementById('isoResults').textContent = 'Searching...';
+            postMessage({ cmd: 'queryFormulaOnline', formula: f });
+        });
+
+        // Enter key triggers search
+        document.getElementById('formulaInput').addEventListener('keydown', e => {
+            if (e.key === 'Enter') {
+                document.getElementById('btnFormula').click();
+            }
+        });
+
+        // Incoming messages from C++
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.addEventListener('message', ev => {
+                const data = ev.data;
+                if (data && data.atoms) {
+                    handleFrame(data);
+                } else if (data && (data.isomers || data.error || data.query)) {
+                    renderIsomers(data);
+                    document.getElementById('statusLine').textContent =
+                        'Received result for ' + (data.query || '');
+                }
+            });
+        } else {
+            setHUD('WebView2 not available');
+        }
+    </script>
+</body>
+</html>
