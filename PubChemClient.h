@@ -3,22 +3,22 @@
 #include <vector>
 
 struct PubChemAtom {
-    int atomicNumber; // e.g. 6 for C, 1 for H
+    int atomicNumber;
     double x;
     double y;
     double z;
 };
 
 struct PubChemBond {
-    int a1; // 0-based atom index
+    int a1;
     int a2;
     int order;
 };
 
 struct PubChemCompound {
     unsigned int cid;
-    std::wstring name;   // IUPAC Preferred (fallback any IUPAC)
-    std::wstring smiles; // Absolute/Connectivity (fallback empty)
+    std::wstring name;
+    std::wstring smiles;
     std::vector<PubChemAtom> atoms;
     std::vector<PubChemBond> bonds;
 };
@@ -29,7 +29,6 @@ struct PubChemFormulaResult {
     std::wstring formula;
     std::vector<unsigned int> topCids;
     std::vector<PubChemCompound> compounds;
-    // Debug
     unsigned long statusCids = 0;
     unsigned long statusRecord = 0;
     std::wstring cidsHead;

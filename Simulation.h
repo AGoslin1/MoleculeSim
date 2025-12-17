@@ -41,7 +41,7 @@ private:
         std::vector<double>& ys,
         std::vector<double>& zs);
 
-    // (Unused right now, but kept if you want your own alkane generator later)
+    // (Unused)
     void BuildLinearAlkane(const std::wstring& smiles,
         std::vector<int>& atomicNumbers,
         std::vector<int>& bA1,

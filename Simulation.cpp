@@ -7,7 +7,7 @@
 #include <numeric>
 #include <algorithm>
 
-// --- Element colors (CPK-ish) ---
+//Element colors (CPK-ish)
 static const std::unordered_map<std::wstring, std::wstring> kElementColors = {
     {L"H",L"#FFFFFF"},{L"He",L"#D9FFFF"},{L"Li",L"#CC80FF"},{L"Be",L"#C2FF00"},{L"B",L"#FFB5B5"},
     {L"C",L"#909090"},{L"N",L"#3050F8"},{L"O",L"#FF0D0D"},{L"F",L"#90E050"},{L"Ne",L"#B3E3F5"},
@@ -35,7 +35,7 @@ static const std::unordered_map<std::wstring, std::wstring> kElementColors = {
     {L"Lv",L"#A0A0A0"},{L"Ts",L"#A0A0A0"},{L"Og",L"#A0A0A0"}
 };
 
-// --- Atomic symbols for Z -> symbol ---
+//Atomic symbols for Z -> symbol
 static const wchar_t* kAtomicSymbols[] = {
     L"", L"H",L"He",L"Li",L"Be",L"B",L"C",L"N",L"O",L"F",L"Ne",
     L"Na",L"Mg",L"Al",L"Si",L"P",L"S",L"Cl",L"Ar",
@@ -59,7 +59,7 @@ static std::wstring AtomicNumberToSymbol(int n) {
     return L"X";
 }
 
-// --- SimulationModel implementation ---
+//SimulationModel implementation
 SimulationModel::SimulationModel() : m_step(0), m_resetPending(false) {}
 
 void SimulationModel::Clear() {
@@ -245,7 +245,7 @@ void SimulationModel::Generate3DFromGraph(const std::vector<int>& atomicNumbers,
     for (size_t i = 0; i < n; ++i) { xs[i] -= cx; ys[i] -= cy; zs[i] -= cz; }
 }
 
-// --- Public LoadSmiles3D (used by presets & isomer buttons) ---
+//Public LoadSmiles3D (used by presets & isomer buttons)
 void SimulationModel::LoadSmiles3D(const std::wstring& smiles) {
     std::vector<int> nums;
     std::vector<double> xs, ys, zs;
@@ -255,12 +255,11 @@ void SimulationModel::LoadSmiles3D(const std::wstring& smiles) {
 
         return;
     }
-    // Fallback (if OpenBabel failed)
     LoadSmiles(smiles);
 
 }
 
-// --- Animation ---
+//Animation
 void SimulationModel::Advance(int steps) {
     for (int i = 0; i < steps; ++i) {
         ApplyDemoMotion();
@@ -278,7 +277,7 @@ void SimulationModel::ApplyDemoMotion() {
     }
 }
 
-// --- JSON for WebView ---
+//JSON for WebView
 std::wstring SimulationModel::BuildJsonFrame() {
     std::wstringstream ss;
     ss << L"{\"step\":" << m_step

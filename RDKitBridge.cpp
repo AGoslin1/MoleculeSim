@@ -4,17 +4,13 @@
 #include <vector>
 #include <sstream>
 #include <fstream>
-#include <direct.h> // _wmkdir
+#include <direct.h>
 
-// --------------------------------------------------------------
 // CONFIGURE OPENBABEL LOCATION
-// --------------------------------------------------------------
 static const wchar_t* OBABEL_EXE =
 L"C:\\Program Files\\OpenBabel-3.1.1\\obabel.exe";  // NO QUOTES HERE
 
-// --------------------------------------------------------------
 // Ensure MoleculeTemp exists
-// --------------------------------------------------------------
 static std::wstring EnsureTempFolder()
 {
     std::wstring base = L"C:\\Users\\alexg\\source\\repos\\MoleculeSim\\MoleculeTemp";
@@ -28,9 +24,7 @@ static bool FileExists(const std::wstring& p)
     return (attr != INVALID_FILE_ATTRIBUTES);
 }
 
-// --------------------------------------------------------------
-// UNIVERSAL PERIODIC TABLE MAPPING
-// --------------------------------------------------------------
+
 static int AtomicNumberFromSymbol(const char* s)
 {
     static const char* symbols[] = {
@@ -54,7 +48,7 @@ static int AtomicNumberFromSymbol(const char* s)
         if (strcmp(s, symbols[i]) == 0)
             return i;
 
-    return 6; // fallback = Carbon
+    return 6;
 }
 
 // --------------------------------------------------------------
@@ -117,9 +111,9 @@ static bool RunOpenBabelHidden(const std::wstring& smiles,
     return true;
 }
 
-// --------------------------------------------------------------
-// MAIN FUNCTION: Generate 3D coordinates using OpenBabel
-// --------------------------------------------------------------
+
+//generate 3D coordinates using OpenBabel
+
 bool Generate3DCoordinates(
     const std::wstring& smiles,
     std::vector<int>& atomicNumbers,

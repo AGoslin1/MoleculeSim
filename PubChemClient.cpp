@@ -362,13 +362,12 @@ static std::vector<PubChemCompound> ParseRecord(const std::string& json) {
     return compounds;
 }
 
-// ------------------ Main formula query ------------------
+//Main formula query
 PubChemFormulaResult QueryPubChemFormulaRecords(const std::wstring& formula, size_t topN) {
     PubChemFormulaResult res{};
     res.formula = formula;
     if (topN == 0) topN = 3;
 
-    // Step 1: /fastformula
     std::wstring path1 = L"/rest/pug/compound/fastformula/" + formula + L"/cids/JSON";
     std::string cidsJson;
     if (!HttpGet(L"pubchem.ncbi.nlm.nih.gov", path1, cidsJson, res.statusCids)) {
@@ -395,7 +394,6 @@ PubChemFormulaResult QueryPubChemFormulaRecords(const std::wstring& formula, siz
         if (i + 1 < allCids.size()) list << L",";
     }
 
-    // Step 2: record request
     std::wstring path2 = L"/rest/pug/compound/cid/" + list.str() + L"/record/JSON";
     std::string recordJson;
     if (!HttpGet(L"pubchem.ncbi.nlm.nih.gov", path2, recordJson, res.statusRecord) ||
@@ -404,7 +402,6 @@ PubChemFormulaResult QueryPubChemFormulaRecords(const std::wstring& formula, siz
         return res;
     }
 
-    // Debug full JSON into VS Output window (already working for you)
     OutputDebugStringA(recordJson.c_str());
 
     res.recordHead = Utf8ToW(recordJson.substr(0, 300));
