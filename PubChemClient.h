@@ -37,3 +37,5 @@ struct PubChemFormulaResult {
 
 PubChemFormulaResult QueryPubChemFormulaRecords(const std::wstring& formula,
     size_t topN = 3);
+
+PubChemCompound QueryPubChemCid(unsigned int cid);

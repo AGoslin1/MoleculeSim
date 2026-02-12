@@ -20,6 +20,26 @@ static std::wstring Utf8ToW(const std::string& s) {
     return out;
 }
 
+// Forward declarations used by QueryPubChemCid
+static bool HttpGet(const std::wstring& host,
+    const std::wstring& path,
+    std::string& body,
+    unsigned long& status);
+
+static std::vector<PubChemCompound> ParseRecord(const std::string& json);
+
+PubChemCompound QueryPubChemCid(unsigned int cid) {
+    PubChemCompound out{};
+    std::wstring path = L"/rest/pug/compound/cid/" + std::to_wstring(cid) + L"/record/JSON";
+    std::string recordJson;
+    unsigned long status = 0;
+    if (!HttpGet(L"pubchem.ncbi.nlm.nih.gov", path, recordJson, status) || status != 200)
+        return out;
+    auto comps = ParseRecord(recordJson);
+    if (!comps.empty()) out = comps[0];
+    return out;
+}
+
 static bool HttpGet(const std::wstring& host,
     const std::wstring& path,
     std::string& body,

@@ -6,6 +6,7 @@
 #include <WebView2.h>
 #include <string>
 #include <sstream>
+#include <unordered_map>
 
 #include "Simulation.h"
 #include "PubChemClient.h"
@@ -20,8 +21,9 @@ static ComPtr<ICoreWebView2> g_webview;
 static bool g_webReady = false;
 static SimulationModel g_sim;
 
-static const UINT_PTR TIMER_ID = 1;
-static const UINT TIMER_INTERVAL_MS = 50;
+// NOTE: Timer no longer used
+// static const UINT_PTR TIMER_ID = 1;
+// static const UINT TIMER_INTERVAL_MS = 50;
 
 // Helpers
 static std::wstring GetExeDir() {
@@ -93,7 +95,6 @@ static void InitWebView(HWND hWnd) {
 
                                         // 1) loadSmiles: presets + isomer buttons
                                         if (payload.find(L"\"cmd\":\"loadSmiles\"") != std::wstring::npos) {
-
                                             const std::wstring skey = L"\"smiles\":\"";
                                             size_t sp = payload.find(skey);
                                             if (sp != std::wstring::npos) {
@@ -102,7 +103,43 @@ static void InitWebView(HWND hWnd) {
                                                 if (se != std::wstring::npos) {
                                                     std::wstring smiles = payload.substr(sp, se - sp);
                                                     g_sim.LoadSmiles3D(smiles);
-                                                    SendCurrentFrame();
+                                                    SendCurrentFrame(); // single frame
+                                                }
+                                            }
+                                        }
+
+                                        // 1b) loadCid: load PubChem compound by CID (for entries without SMILES)
+                                        if (payload.find(L"\"cmd\":\"loadCid\"") != std::wstring::npos) {
+                                            const std::wstring ckey = L"\"cid\":";
+                                            size_t cp = payload.find(ckey);
+                                            if (cp != std::wstring::npos) {
+                                                cp += ckey.size();
+                                                unsigned int cid = 0;
+                                                while (cp < payload.size() && iswdigit(payload[cp])) {
+                                                    cid = cid * 10 + (payload[cp] - L'0');
+                                                    ++cp;
+                                                }
+                                                if (cid) {
+                                                    PubChemCompound c = QueryPubChemCid(cid);
+                                                    if (!c.smiles.empty()) {
+                                                        g_sim.LoadSmiles3D(c.smiles);
+                                                        SendCurrentFrame(); // single frame
+                                                    }
+                                                    else if (!c.atoms.empty()) {
+                                                        std::vector<int> nums; std::vector<double> xs, ys, zs;
+                                                        nums.reserve(c.atoms.size());
+                                                        xs.reserve(c.atoms.size());
+                                                        ys.reserve(c.atoms.size());
+                                                        zs.reserve(c.atoms.size());
+                                                        for (auto const& a : c.atoms) {
+                                                            nums.push_back(a.atomicNumber);
+                                                            xs.push_back(a.x);
+                                                            ys.push_back(a.y);
+                                                            zs.push_back(a.z);
+                                                        }
+                                                        g_sim.LoadPubChem(nums, xs, ys, zs);
+                                                        SendCurrentFrame(); // single frame
+                                                    }
                                                 }
                                             }
                                         }
@@ -130,42 +167,60 @@ static void InitWebView(HWND hWnd) {
                                                             << L"}}";
                                                     }
                                                     else {
-                                                        js << L"{\"query\":\"" << JsonEscape(formula) << L"\",\"isomers\":[";
+                                                        // Select the 3 most popular (same order as fastformula/topCids) that are significant
+                                                        std::vector<PubChemCompound> relevant;
+                                                        relevant.reserve(3);
+
+                                                        // Build CID -> compound map to preserve popularity ordering
+                                                        std::unordered_map<unsigned int, size_t> indexByCid;
+                                                        indexByCid.reserve(res.compounds.size());
                                                         for (size_t i = 0; i < res.compounds.size(); ++i) {
-                                                            const auto& c = res.compounds[i];
+                                                            indexByCid[res.compounds[i].cid] = i;
+                                                        }
+
+                                                        for (auto cid : res.topCids) {
+                                                            auto it = indexByCid.find(cid);
+                                                            if (it == indexByCid.end()) continue;
+                                                            const auto& c = res.compounds[it->second];
+                                                            const bool significant = (!c.smiles.empty() || !c.atoms.empty());
+                                                            if (significant) {
+                                                                relevant.push_back(c);
+                                                                if (relevant.size() == 3) break;
+                                                            }
+                                                        }
+
+                                                        // ... inside the queryFormulaOnline handler, where the isomer JSON is built
+                                                        js << L"{\"query\":\"" << JsonEscape(formula) << L"\",\"isomers\":[";
+                                                        for (size_t i = 0; i < relevant.size(); ++i) {
+                                                            const auto& c = relevant[i];
                                                             js << L"{\"cid\":" << c.cid
                                                                 << L",\"name\":\"" << JsonEscape(c.name)
-                                                                << L"\",\"smiles\":\"" << JsonEscape(c.smiles)
-                                                                << L",\"atomCount\":" << c.atoms.size()
+                                                                << L"\",\"smiles\":\"" << JsonEscape(c.smiles)  // add missing closing quote next:
+                                                                << L"\",\"atomCount\":" << c.atoms.size()
                                                                 << L"}";
-                                                            if (i + 1 < res.compounds.size())
-                                                                js << L",";
+                                                            if (i + 1 < relevant.size()) js << L",";
                                                         }
                                                         js << L"],\"debug\":{"
                                                             << L"\"statusCids\":" << res.statusCids
                                                             << L",\"statusRecord\":" << res.statusRecord
                                                             << L"}}";
 
-                                                        // Auto-load first compound (prefer SMILES + OpenBabel)
-                                                        if (!res.compounds.empty()) {
-                                                            const auto& first = res.compounds.front();
+                                                        // Optional: auto-load the first relevant one once
+                                                        if (!relevant.empty()) {
+                                                            const auto& first = relevant.front();
                                                             if (!first.smiles.empty()) {
                                                                 g_sim.LoadSmiles3D(first.smiles);
                                                                 SendCurrentFrame();
                                                             }
                                                             else {
-                                                                // Fallback: PubChem atoms (maybe 2D)
-                                                                std::vector<int> nums;
-                                                                std::vector<double> xs, ys, zs;
+                                                                std::vector<int> nums; std::vector<double> xs, ys, zs;
                                                                 nums.reserve(first.atoms.size());
                                                                 xs.reserve(first.atoms.size());
                                                                 ys.reserve(first.atoms.size());
                                                                 zs.reserve(first.atoms.size());
                                                                 for (auto const& a : first.atoms) {
                                                                     nums.push_back(a.atomicNumber);
-                                                                    xs.push_back(a.x);
-                                                                    ys.push_back(a.y);
-                                                                    zs.push_back(a.z);
+                                                                    xs.push_back(a.x); ys.push_back(a.y); zs.push_back(a.z);
                                                                 }
                                                                 g_sim.LoadPubChem(nums, xs, ys, zs);
                                                                 SendCurrentFrame();
@@ -187,9 +242,10 @@ static void InitWebView(HWND hWnd) {
                                 Microsoft::WRL::Callback<ICoreWebView2NavigationCompletedEventHandler>(
                                     [](ICoreWebView2*, ICoreWebView2NavigationCompletedEventArgs*)->HRESULT {
                                         g_webReady = true;
-                                        g_sim.InitializeWater();
+                                        g_sim.LoadSmiles3D(L"O");
                                         SendCurrentFrame();
-                                        SetTimer(g_hWnd, TIMER_ID, TIMER_INTERVAL_MS, nullptr);
+                                        // Stop starting any timers: no continuous frames
+                                        // SetTimer(g_hWnd, TIMER_ID, TIMER_INTERVAL_MS, nullptr);
                                         return S_OK;
                                     }).Get(),
                                         &navToken);
@@ -215,22 +271,23 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         }
         return 0;
 
-    case WM_TIMER:
-        if (wParam == TIMER_ID) {
-            g_sim.Advance(1);
-            SendCurrentFrame();
-        }
-        return 0;
+        // Remove continuous animation frames
+        // case WM_TIMER:
+        //     if (wParam == TIMER_ID) {
+        //         g_sim.Advance(1);
+        //         SendCurrentFrame();
+        //     }
+        //     return 0;
 
     case WM_DESTROY:
-        KillTimer(hWnd, TIMER_ID);
+        // KillTimer(hWnd, TIMER_ID); // not started anymore
         PostQuitMessage(0);
         return 0;
     }
     return DefWindowProcW(hWnd, msg, wParam, lParam);
 }
 
-// Entry point
+// Entry point unchanged
 int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int) {
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 

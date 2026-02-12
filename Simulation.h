@@ -12,6 +12,12 @@ struct SimAtom {
     std::wstring colorHex;
 };
 
+struct SimBond {
+    int a1;
+    int a2;
+    int order;
+};
+
 class SimulationModel {
 public:
     SimulationModel();
@@ -21,7 +27,10 @@ public:
     void LoadPubChem(const std::vector<int>& atomicNumbers,
         const std::vector<double>& xs,
         const std::vector<double>& ys,
-        const std::vector<double>& zs);
+        const std::vector<double>& zs,
+        const std::vector<int>* bA1 = nullptr,
+        const std::vector<int>* bA2 = nullptr,
+        const std::vector<int>* bOrder = nullptr);
     void Advance(int steps = 1);
     std::wstring BuildJsonFrame();
 
@@ -29,6 +38,7 @@ private:
     int m_step;
     bool m_resetPending;
     std::vector<SimAtom> m_atoms;
+    std::vector<SimBond> m_bonds;
 
     void Clear();
     void AddAtom(const std::wstring& sym, double x, double y, double z);
@@ -41,7 +51,7 @@ private:
         std::vector<double>& ys,
         std::vector<double>& zs);
 
-    // (Unused)
+    // (Unused helpers remain)
     void BuildLinearAlkane(const std::wstring& smiles,
         std::vector<int>& atomicNumbers,
         std::vector<int>& bA1,

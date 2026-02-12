@@ -112,6 +112,74 @@ static bool RunOpenBabelHidden(const std::wstring& smiles,
 }
 
 
+// New helper: parse SDF atoms + bonds
+static bool ParseSdfAtomsAndBonds(
+    const std::wstring& sdfPath,
+    std::vector<int>& atomicNumbers,
+    std::vector<double>& xs,
+    std::vector<double>& ys,
+    std::vector<double>& zs,
+    std::vector<int>& bA1,
+    std::vector<int>& bA2,
+    std::vector<int>& bOrder)
+{
+    atomicNumbers.clear(); xs.clear(); ys.clear(); zs.clear();
+    bA1.clear(); bA2.clear(); bOrder.clear();
+
+    std::ifstream in(sdfPath);
+    if (!in) return false;
+
+    std::string line;
+    std::vector<std::string> sdf;
+    while (std::getline(in, line)) sdf.push_back(line);
+    if (sdf.size() < 4) return false;
+
+    // Counts line at index 3: aaabbb...
+    int atomCount = 0, bondCount = 0;
+    {
+        // MOL V2000 format: 3i3, but we’ll be lenient with whitespace
+        int a = 0, b = 0;
+        std::stringstream ss(sdf[3]);
+        ss >> a >> b;
+        atomCount = a; bondCount = b;
+    }
+    if (atomCount <= 0) return false;
+
+    atomicNumbers.reserve(atomCount);
+    xs.reserve(atomCount); ys.reserve(atomCount); zs.reserve(atomCount);
+
+    // Atom block
+    for (int i = 4; i < 4 + atomCount && i < (int)sdf.size(); ++i) {
+        double x = 0, y = 0, z = 0;
+        char symbol[8] = {};
+        sscanf_s(sdf[i].c_str(), "%lf %lf %lf %7s", &x, &y, &z, symbol, (unsigned)_countof(symbol));
+        xs.push_back(x);
+        ys.push_back(y);
+        zs.push_back(z);
+        atomicNumbers.push_back(AtomicNumberFromSymbol(symbol));
+    }
+
+    // Bond block (each line: a1 a2 order ...)
+    int bondStart = 4 + atomCount;
+    int bondEnd = bondStart + bondCount;
+    bA1.reserve(bondCount); bA2.reserve(bondCount); bOrder.reserve(bondCount);
+
+    for (int i = bondStart; i < bondEnd && i < (int)sdf.size(); ++i) {
+        int a1 = 0, a2 = 0, order = 0;
+        // The first three integers are a1, a2, order; indices are 1-based in SDF
+        std::stringstream ss(sdf[i]);
+        ss >> a1 >> a2 >> order;
+        if (a1 > 0 && a2 > 0) {
+            // Convert to 0-based
+            bA1.push_back(a1 - 1);
+            bA2.push_back(a2 - 1);
+            bOrder.push_back(order > 0 ? order : 1);
+        }
+    }
+
+    return true;
+}
+
 //generate 3D coordinates using OpenBabel
 
 bool Generate3DCoordinates(
@@ -121,71 +189,42 @@ bool Generate3DCoordinates(
     std::vector<double>& ys,
     std::vector<double>& zs)
 {
-    atomicNumbers.clear();
-    xs.clear();
-    ys.clear();
-    zs.clear();
+    atomicNumbers.clear(); xs.clear(); ys.clear(); zs.clear();
+    if (smiles.empty()) return false;
 
-    if (smiles.empty())
-        return false;
-
-    // 1) Build output path
     std::wstring folder = EnsureTempFolder();
     std::wstring outFile = folder + L"\\babel_out.sdf";
 
-    // 2) Run OpenBabel (hidden)
     DWORD exitCode = 1;
-    if (!RunOpenBabelHidden(smiles, outFile, exitCode))
-        return false;
+    if (!RunOpenBabelHidden(smiles, outFile, exitCode)) return false;
+    if (exitCode != 0 || !FileExists(outFile)) return false;
 
-    if (exitCode != 0 || !FileExists(outFile))
-        return false;
+    // Old behavior: atoms only
+    std::vector<int> dummyA1, dummyA2, dummyOrder;
+    return ParseSdfAtomsAndBonds(outFile, atomicNumbers, xs, ys, zs, dummyA1, dummyA2, dummyOrder);
+}
 
-    // 3) Parse SDF
-    std::ifstream in(outFile);
-    if (!in)
-        return false;
+// New: atoms + bonds
+bool Generate3DWithBonds(
+    const std::wstring& smiles,
+    std::vector<int>& atomicNumbers,
+    std::vector<double>& xs,
+    std::vector<double>& ys,
+    std::vector<double>& zs,
+    std::vector<int>& bA1,
+    std::vector<int>& bA2,
+    std::vector<int>& bOrder)
+{
+    atomicNumbers.clear(); xs.clear(); ys.clear(); zs.clear();
+    bA1.clear(); bA2.clear(); bOrder.clear();
+    if (smiles.empty()) return false;
 
-    std::string line;
-    std::vector<std::string> sdf;
-    while (std::getline(in, line))
-        sdf.push_back(line);
+    std::wstring folder = EnsureTempFolder();
+    std::wstring outFile = folder + L"\\babel_out.sdf";
 
-    if (sdf.size() < 4)
-        return false;
+    DWORD exitCode = 1;
+    if (!RunOpenBabelHidden(smiles, outFile, exitCode)) return false;
+    if (exitCode != 0 || !FileExists(outFile)) return false;
 
-    int atomCount = 0;
-    {
-        int a, b;
-        std::stringstream ss(sdf[3]);
-        ss >> a >> b;
-        atomCount = a;
-    }
-
-    if (atomCount <= 0)
-        return false;
-
-    atomicNumbers.reserve(atomCount);
-    xs.reserve(atomCount);
-    ys.reserve(atomCount);
-    zs.reserve(atomCount);
-
-    for (int i = 4; i < 4 + atomCount; i++)
-    {
-        if (i >= (int)sdf.size()) break;
-
-        double x, y, z;
-        char symbol[8] = {};
-
-        sscanf_s(sdf[i].c_str(), "%lf %lf %lf %7s",
-            &x, &y, &z, symbol, (unsigned)_countof(symbol));
-
-        xs.push_back(x);
-        ys.push_back(y);
-        zs.push_back(z);
-
-        atomicNumbers.push_back(AtomicNumberFromSymbol(symbol));
-    }
-
-    return true;
+    return ParseSdfAtomsAndBonds(outFile, atomicNumbers, xs, ys, zs, bA1, bA2, bOrder);
 }

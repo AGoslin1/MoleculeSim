@@ -59,11 +59,11 @@ static std::wstring AtomicNumberToSymbol(int n) {
     return L"X";
 }
 
-//SimulationModel implementation
 SimulationModel::SimulationModel() : m_step(0), m_resetPending(false) {}
 
 void SimulationModel::Clear() {
     m_atoms.clear();
+    m_bonds.clear();
     m_step = 0;
 }
 
@@ -146,7 +146,10 @@ void SimulationModel::PromoteFlatTo3D(std::vector<int>& atomicNumbers,
 void SimulationModel::LoadPubChem(const std::vector<int>& atomicNumbers,
     const std::vector<double>& xs,
     const std::vector<double>& ys,
-    const std::vector<double>& zs) {
+    const std::vector<double>& zs,
+    const std::vector<int>* bA1,
+    const std::vector<int>* bA2,
+    const std::vector<int>* bOrder) {
     Clear();
     size_t n = atomicNumbers.size();
     if (!n) { m_resetPending = true; return; }
@@ -154,117 +157,44 @@ void SimulationModel::LoadPubChem(const std::vector<int>& atomicNumbers,
     std::vector<int> nums = atomicNumbers;
     std::vector<double> xbuf = xs, ybuf = ys, zbuf = zs;
 
-    // Only promotes if PubChem data is flat. OpenBabel 3D should pass through untouched.
+    // Keep 3D from OpenBabel; promote only flat PubChem records
     PromoteFlatTo3D(nums, xbuf, ybuf, zbuf);
 
     for (size_t i = 0; i < n; ++i)
         AddAtom(AtomicNumberToSymbol(nums[i]), xbuf[i], ybuf[i], zbuf[i]);
 
+    // Optional bonds
+    if (bA1 && bA2 && bOrder) {
+        size_t nb = std::min(bA1->size(), bA2->size());
+        m_bonds.reserve(nb);
+        for (size_t i = 0; i < nb; ++i) {
+            SimBond b{ (*bA1)[i], (*bA2)[i], (i < bOrder->size() ? (*bOrder)[i] : 1) };
+            if (b.a1 >= 0 && b.a2 >= 0 && b.a1 < (int)m_atoms.size() && b.a2 < (int)m_atoms.size())
+                m_bonds.push_back(b);
+        }
+    }
+
     m_resetPending = true;
 }
 
-// (These two are unused for now, kept for completeness / future use)
-void SimulationModel::BuildLinearAlkane(const std::wstring& smiles,
-    std::vector<int>& atomicNumbers,
-    std::vector<int>& bA1,
-    std::vector<int>& bA2,
-    std::vector<int>& bOrder) {
-    size_t nC = 0;
-    for (auto c : smiles) if (c == L'C') ++nC;
-    if (!nC) return;
-    for (size_t i = 0; i < nC; ++i) atomicNumbers.push_back(6);
-    size_t nH = 2 * nC + 2;
-    for (size_t i = 0; i < nH; ++i) atomicNumbers.push_back(1);
-    for (size_t i = 0; i + 1 < nC; ++i) {
-        bA1.push_back((int)i); bA2.push_back((int)i + 1); bOrder.push_back(1);
-    }
-    size_t hStart = nC, hCur = hStart;
-    for (size_t i = 0; i < nC; ++i) {
-        size_t need = (i == 0 || i == nC - 1) ? 3 : 2;
-        for (size_t k = 0; k < need && hCur < atomicNumbers.size(); ++k) {
-            bA1.push_back((int)i);
-            bA2.push_back((int)hCur);
-            bOrder.push_back(1);
-            ++hCur;
-        }
-    }
-}
 
-void SimulationModel::Generate3DFromGraph(const std::vector<int>& atomicNumbers,
-    const std::vector<int>& bA1,
-    const std::vector<int>& bA2,
-    const std::vector<int>& bOrder,
-    std::vector<double>& xs,
-    std::vector<double>& ys,
-    std::vector<double>& zs) {
-    size_t n = atomicNumbers.size();
-    xs.assign(n, 0); ys.assign(n, 0); zs.assign(n, 0);
-    std::vector<std::vector<int>> adj(n);
-    for (size_t i = 0; i < bA1.size() && i < bA2.size(); ++i) {
-        int a = bA1[i], b = bA2[i];
-        if (a >= 0 && b >= 0 && a < (int)n && b < (int)n) {
-            adj[a].push_back(b);
-            adj[b].push_back(a);
-        }
-    }
-
-    double step = 1.54;
-    int backboneIndex = 0;
-    for (size_t i = 0; i < n; ++i) {
-        if (atomicNumbers[i] != 1) {
-            xs[i] = backboneIndex * step;
-            ys[i] = (backboneIndex % 2 == 0) ? 0.6 : -0.6;
-            zs[i] = (backboneIndex % 2 == 0) ? 0.5 : -0.5;
-            ++backboneIndex;
-        }
-    }
-
-    static const double t = 0.9;
-    static const double V[4][3] = {
-        { t,  t,  t},
-        { t, -t, -t},
-        {-t,  t, -t},
-        {-t, -t,  t}
-    };
-    for (size_t i = 0; i < n; ++i) if (atomicNumbers[i] == 1) {
-        int anchor = -1;
-        for (int nb : adj[i]) if (atomicNumbers[nb] != 1) { anchor = nb; break; }
-        if (anchor < 0) continue;
-        int placed = 0;
-        for (int nb : adj[anchor]) if (atomicNumbers[nb] == 1 && std::fabs(xs[nb]) > 1e-6) ++placed;
-        const double* d = V[placed % 4];
-        double bl = 1.09;
-        xs[i] = xs[anchor] + d[0] * bl;
-        ys[i] = ys[anchor] + d[1] * bl;
-        zs[i] = zs[anchor] + d[2] * bl;
-    }
-
-    double cx = 0, cy = 0, cz = 0;
-    for (size_t i = 0; i < n; ++i) { cx += xs[i]; cy += ys[i]; cz += zs[i]; }
-    cx /= n; cy /= n; cz /= n;
-    for (size_t i = 0; i < n; ++i) { xs[i] -= cx; ys[i] -= cy; zs[i] -= cz; }
-}
-
-//Public LoadSmiles3D (used by presets & isomer buttons)
 void SimulationModel::LoadSmiles3D(const std::wstring& smiles) {
     std::vector<int> nums;
     std::vector<double> xs, ys, zs;
-    if (Generate3DCoordinates(smiles, nums, xs, ys, zs)) {
-        LoadPubChem(nums, xs, ys, zs);
+    std::vector<int> bA1, bA2, bOrder;
 
-
+    // Prefer atoms+bonds from OpenBabel; fall back to atoms-only
+    if (Generate3DWithBonds(smiles, nums, xs, ys, zs, bA1, bA2, bOrder) ||
+        Generate3DCoordinates(smiles, nums, xs, ys, zs)) {
+        if (!bA1.empty()) {
+            LoadPubChem(nums, xs, ys, zs, &bA1, &bA2, &bOrder);
+        }
+        else {
+            LoadPubChem(nums, xs, ys, zs);
+        }
         return;
     }
     LoadSmiles(smiles);
-
-}
-
-//Animation
-void SimulationModel::Advance(int steps) {
-    for (int i = 0; i < steps; ++i) {
-        ApplyDemoMotion();
-        ++m_step;
-    }
 }
 
 void SimulationModel::ApplyDemoMotion() {
@@ -283,6 +213,7 @@ std::wstring SimulationModel::BuildJsonFrame() {
     ss << L"{\"step\":" << m_step
         << L",\"reset\":" << (m_resetPending ? L"true" : L"false")
         << L",\"atoms\":[";
+
     for (size_t i = 0; i < m_atoms.size(); ++i) {
         const auto& a = m_atoms[i];
         ss << L"{\"element\":\"" << a.symbol
@@ -294,7 +225,19 @@ std::wstring SimulationModel::BuildJsonFrame() {
             << L"}";
         if (i + 1 < m_atoms.size()) ss << L",";
     }
-    ss << L"]}";
+    ss << L"]";
+
+    if (!m_bonds.empty()) {
+        ss << L",\"bonds\":[";
+        for (size_t i = 0; i < m_bonds.size(); ++i) {
+            const auto& b = m_bonds[i];
+            ss << L"{\"a1\":" << b.a1 << L",\"a2\":" << b.a2 << L",\"order\":" << b.order << L"}";
+            if (i + 1 < m_bonds.size()) ss << L",";
+        }
+        ss << L"]";
+    }
+
+    ss << L"}";
     m_resetPending = false;
     return ss.str();
 }

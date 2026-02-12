@@ -29,14 +29,26 @@
             border-bottom: 1px solid #333;
         }
 
+        #tabs {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            flex: 1 1 auto;
+            overflow: hidden;
+        }
+
         .tabbtn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
             background: #2a2a2a;
             color: #ccc;
             border: 1px solid #444;
-            padding: 6px 12px;
+            padding: 6px 10px;
             cursor: pointer;
             font-size: 13px;
             border-radius: 4px;
+            user-select: none;
         }
 
             .tabbtn:hover {
@@ -49,17 +61,38 @@
                 color: #fff;
             }
 
+        .tablabel {
+            max-width: 180px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .tabclose {
+            background: transparent;
+            border: none;
+            color: #aaa;
+            font-size: 13px;
+            padding: 0 4px;
+            cursor: pointer;
+        }
+
+            .tabclose:hover {
+                color: #fff;
+            }
+
         #formulaInput {
             background: #222;
             border: 1px solid #444;
             color: #eee;
             padding: 6px 8px;
             border-radius: 4px;
-            width: 140px;
+            width: 100%;
             font-size: 13px;
+            box-sizing: border-box;
         }
 
-        #btnFormula, .isoBtn {
+        #btnFormula {
             background: #2b2b2b;
             border: 1px solid #444;
             color: #ddd;
@@ -67,9 +100,12 @@
             cursor: pointer;
             font-size: 13px;
             border-radius: 4px;
+            width: 100%;
+            box-sizing: border-box;
+            margin-top: 6px;
         }
 
-            #btnFormula:hover, .isoBtn:hover {
+            #btnFormula:hover {
                 background: #3a3a3a;
             }
 
@@ -105,17 +141,35 @@
             flex-direction: column;
             padding: 8px;
             overflow: auto;
+            gap: 8px;
         }
 
-        #isoHeader {
+        /* Section headers */
+        .sectionHeader {
             font-size: 13px;
-            margin: 0 0 6px 0;
+            margin: 0;
             font-weight: bold;
         }
 
         .isoEntry {
             margin-bottom: 6px;
         }
+
+        .isoBtn {
+            background: #2b2b2b;
+            border: 1px solid #444;
+            color: #ddd;
+            padding: 6px 10px;
+            cursor: pointer;
+            font-size: 13px;
+            border-radius: 4px;
+            width: 100%;
+            text-align: left;
+        }
+
+            .isoBtn:hover {
+                background: #3a3a3a;
+            }
 
         .msg {
             font-size: 12px;
@@ -129,35 +183,58 @@
             margin: 8px 0;
         }
 
+        /* Colors legend */
+        #legendContainer {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .legendRow {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #ccc;
+        }
+
+        .legendSwatch {
+            width: 14px;
+            height: 14px;
+            border-radius: 3px;
+            border: 1px solid #444;
+            box-shadow: 0 0 2px rgba(0,0,0,0.6);
+            flex: 0 0 14px;
+        }
+
         #statusLine {
             font-size: 11px;
             color: #888;
             margin-top: auto;
         }
-
-        button:disabled {
-            opacity: 0.5;
-            cursor: default;
-        }
     </style>
 </head>
 <body>
     <div id="topbar">
-        <button class="tabbtn active" data-smiles="O">H2O</button>
-        <button class="tabbtn" data-smiles="[H][H]">H2</button>
-        <button class="tabbtn" data-smiles="O=C=O">CO2</button>
-        <button class="tabbtn" data-smiles="C">CH4</button>
-        <div style="width:1px; height:28px; background:#333; margin:0 4px;"></div>
-        <input id="formulaInput" placeholder="Formula (e.g. C4H10)" />
-        <button id="btnFormula">Search</button>
+        <div id="tabs"></div>
     </div>
 
     <div id="viewer"></div>
     <div id="hud">Waiting...</div>
 
     <div id="sidepanel">
-        <p id="isoHeader">Isomers</p>
+        <input id="formulaInput" placeholder="Formula (e.g. C4H10)" />
+        <button id="btnFormula">Search</button>
+
+        <p id="isoHeader" class="sectionHeader">Isomers</p>
         <div id="isoResults" class="msg">Enter a formula and press Search.</div>
+
+        <div class="sep"></div>
+
+        <!-- Colors legend -->
+        <p id="legendHeader" class="sectionHeader">Colors</p>
+        <div id="legendContainer" class="msg">Loaded elements and their colors will appear here.</div>
+
         <div class="sep"></div>
         <div id="statusLine">Idle</div>
     </div>
@@ -165,139 +242,318 @@
     <script>
         let viewer = null;
         let model = null;
-        let atomsCache = [];
+
+        const tabs = [];
+        let activeTabId = null;
+        let nextTabId = 1;
+        let pendingTabId = null;
+
+        function setHUD(text) { document.getElementById('hud').textContent = text; }
+        function logStatus(text) { document.getElementById('statusLine').textContent = text; console.log(text); }
 
         function ensureViewer() {
             if (viewer) return true;
-            if (typeof $3Dmol === 'undefined') {
-                setHUD('Loading 3Dmol.js...');
-                return false;
-            }
-            viewer = $3Dmol.createViewer(document.getElementById('viewer'), {
-                backgroundColor: '#121212'
-            });
+            if (typeof $3Dmol === 'undefined') { setHUD('3Dmol.js not loaded'); return false; }
+            viewer = $3Dmol.createViewer(document.getElementById('viewer'), { backgroundColor: '#121212' });
             return true;
         }
 
-        function setHUD(text) {
-            document.getElementById('hud').textContent = text;
-        }
+        function buildModelOnce(frame) {
+            viewer.clear();
 
-        function buildModel(frame) {
-            atomsCache = frame.atoms.map(a => ({
-                elem: a.element,
-                x: a.x,
-                y: a.y,
-                z: a.z
+            const atoms = frame.atoms.map(a => ({
+                elem: a.element, x: a.x, y: a.y, z: a.z,
+                color: a.color || '#FFFFFF'
             }));
-            model = viewer.addModel();
-            model.addAtoms(atomsCache);
-            frame.atoms.forEach((a, i) => {
-                model.setStyle({ index: i }, {
-                    sphere: { color: a.color || '#FFFFFF', radius: a.radius || 0.3 }
-                });
+
+            const atomsWithBonds = frame.atoms.map(a => ({
+                elem: a.element, x: a.x, y: a.y, z: a.z,
+                bonds: [], bondOrder: []
+            }));
+            if (Array.isArray(frame.bonds)) {
+                for (const b of frame.bonds) {
+                    const i = (b.a1 | 0), j = (b.a2 | 0), order = (b.order | 0) || 1;
+                    if (atomsWithBonds[i] && atomsWithBonds[j]) {
+                        atomsWithBonds[i].bonds.push(j);
+                        atomsWithBonds[i].bondOrder.push(order);
+                        atomsWithBonds[j].bonds.push(i);
+                        atomsWithBonds[j].bondOrder.push(order);
+                    }
+                }
+            }
+
+            // Model A: big spheres (per-element radii)
+            const sphereModel = viewer.addModel();
+            sphereModel.addAtoms(atoms);
+
+            // Per-element radii (Å)
+            const radii = {
+            };
+            const R_DEFAULT = 0.40;
+
+            for (let i = 0; i < atoms.length; ++i) {
+                const a = atoms[i];
+                const r = radii[a.elem] !== undefined ? radii[a.elem] : R_DEFAULT;
+                sphereModel.setStyle({ index: i }, { sphere: { radius: r, color: a.color } });
+            }
+
+            // Model B: thin sticks
+            const stickModel = viewer.addModel();
+            stickModel.addAtoms(atomsWithBonds);
+            stickModel.setStyle({}, {
+                stick: {
+                    radius: 0.12,
+                    multipleBond: 'offset',
+                    bondSpacing: 0.30
+                }
             });
+
             viewer.zoomTo();
             viewer.render();
         }
 
-        function updateModel(frame) {
-            frame.atoms.forEach((a, i) => {
-                atomsCache[i].x = a.x;
-                atomsCache[i].y = a.y;
-                atomsCache[i].z = a.z;
+        function renderLegend(frame) {
+            const legend = document.getElementById('legendContainer');
+            legend.innerHTML = '';
+            if (!frame || !Array.isArray(frame.atoms) || frame.atoms.length === 0) {
+                legend.textContent = 'No elements loaded.';
+                return;
+            }
+
+            // Build unique element -> color map (prefer latest color from frame)
+            const map = new Map();
+            frame.atoms.forEach(a => {
+                const sym = a.element;
+                const color = a.color || '#A0A0A0';
+                if (!map.has(sym)) map.set(sym, color);
             });
-            model.setCoordinates(atomsCache);
-            viewer.render();
+
+            // Pretty label from symbol -> name fallback
+            const symbolToName = {
+                H: 'hydrogen', He: 'helium', Li: 'lithium', Be: 'beryllium', B: 'boron',
+                C: 'carbon', N: 'nitrogen', O: 'oxygen', F: 'fluorine', Ne: 'neon',
+                Na: 'sodium', Mg: 'magnesium', Al: 'aluminium', Si: 'silicon', P: 'phosphorus',
+                S: 'sulfur', Cl: 'chlorine', Ar: 'argon', K: 'potassium', Ca: 'calcium',
+                Cu: 'copper', Zn: 'zinc', Br: 'bromine', I: 'iodine', Xe: 'xenon'
+                // Keep compact; unknowns will show symbol only.
+            };
+
+            map.forEach((color, sym) => {
+                const row = document.createElement('div');
+                row.className = 'legendRow';
+
+                const sw = document.createElement('div');
+                sw.className = 'legendSwatch';
+                sw.style.background = color;
+
+                const label = document.createElement('span');
+                const name = symbolToName[sym] ? symbolToName[sym] : sym;
+                label.textContent = '[' + sym + '] = ' + name;
+
+                row.appendChild(sw);
+                row.appendChild(label);
+                legend.appendChild(row);
+            });
         }
 
         function handleFrame(frame) {
             if (!ensureViewer()) return;
-            if (frame.reset || !model) {
-                viewer.clear();
-                model = null;
-                buildModel(frame);
-            } else {
-                updateModel(frame);
-            }
-            setHUD('Frame ' + frame.step);
+            buildModelOnce(frame);
+            renderLegend(frame);
+            setHUD('Loaded');
         }
 
-        function renderIsomers(payload) {
-            const container = document.getElementById('isoResults');
-            container.innerHTML = '';
-            if (payload.error) {
-                container.textContent = 'Error: ' + payload.error;
-                return;
-            }
-            if (!payload.isomers || payload.isomers.length === 0) {
-                container.textContent = 'No isomers found.';
-                return;
-            }
-            payload.isomers.forEach(iso => {
-                const div = document.createElement('div');
-                div.className = 'isoEntry';
-                const btn = document.createElement('button');
-                btn.className = 'isoBtn';
-                btn.textContent = (iso.name ? iso.name : 'Isomer') +
-                    ' [' + iso.smiles + ']';
-                btn.onclick = () => {
-                    postMessage({ cmd: 'loadSmiles', smiles: iso.smiles });
-                };
-                div.appendChild(btn);
-                container.appendChild(div);
-            });
-        }
-
-        function postMessage(obj) {
-            if (window.chrome && window.chrome.webview) {
-                window.chrome.webview.postMessage(obj);
-                document.getElementById('statusLine').textContent =
-                    'Sent: ' + obj.cmd;
-            }
-        }
-
-        // Tabs (predefined molecules)
-        document.querySelectorAll('.tabbtn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('.tabbtn')
-                    .forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                const smiles = btn.getAttribute('data-smiles');
-                postMessage({ cmd: 'loadSmiles', smiles });
-            });
-        });
-
-        // Formula search
-        document.getElementById('btnFormula').addEventListener('click', () => {
-            const f = document.getElementById('formulaInput').value.trim();
-            if (!f) return;
-            document.getElementById('isoResults').textContent = 'Searching...';
-            postMessage({ cmd: 'queryFormulaOnline', formula: f });
-        });
-
-        // Enter key triggers search
-        document.getElementById('formulaInput').addEventListener('keydown', e => {
-            if (e.key === 'Enter') {
-                document.getElementById('btnFormula').click();
-            }
-        });
-
-        // Incoming messages from C++
         if (window.chrome && window.chrome.webview) {
             window.chrome.webview.addEventListener('message', ev => {
                 const data = ev.data;
+                const container = document.getElementById('isoResults');
+                if (container && container.textContent === 'Searching...') {
+                    container.textContent = '';
+                }
+
                 if (data && data.atoms) {
                     handleFrame(data);
                 } else if (data && (data.isomers || data.error || data.query)) {
                     renderIsomers(data);
-                    document.getElementById('statusLine').textContent =
-                        'Received result for ' + (data.query || '');
                 }
             });
         } else {
             setHUD('WebView2 not available');
         }
+
+        function renderIsomers(payload) {
+            const container = document.getElementById('isoResults');
+            container.innerHTML = '';
+
+            if (!payload) { container.textContent = 'No isomers found.'; return; }
+            if (payload.error) { container.textContent = 'Error: ' + payload.error; return; }
+
+            const list = Array.isArray(payload.isomers) ? payload.isomers : [];
+            if (list.length === 0) { container.textContent = 'No isomers found.'; return; }
+
+            const first = list[0];
+            if (pendingTabId !== null && first) {
+                const tab = tabs.find(t => t.id === pendingTabId);
+                if (tab) {
+                    tab.label = first.name ? first.name : (first.smiles || ('CID ' + first.cid));
+                    if (first.smiles && first.smiles.length > 0) {
+                        tab.source = { type: 'smiles', value: first.smiles };
+                    } else if (first.cid) {
+                        tab.source = { type: 'cid', value: first.cid };
+                    }
+                    activateTab(tab.id);
+                }
+                pendingTabId = null;
+            }
+
+            list.forEach(iso => {
+                const div = document.createElement('div');
+                div.className = 'isoEntry';
+                const btn = document.createElement('button');
+                btn.className = 'isoBtn';
+                btn.textContent = (iso.name ? iso.name : ('CID ' + iso.cid)) + (iso.smiles ? (' [' + iso.smiles + ']') : '');
+                btn.onclick = () => {
+                    const id = createOrActivateTab(
+                        iso.name ? iso.name : (iso.smiles || ('CID ' + iso.cid)),
+                        iso.smiles,
+                        iso.cid
+                    );
+                    const tab = tabs.find(t => t.id === id);
+                    if (tab) {
+                        if (iso.smiles && iso.smiles.length > 0) tab.source = { type: 'smiles', value: iso.smiles };
+                        else if (iso.cid) tab.source = { type: 'cid', value: iso.cid };
+                    }
+                    activateTab(id);
+                };
+                div.appendChild(btn);
+                container.appendChild(div);
+            });
+
+            logStatus('Received result for ' + (payload.query || ''));
+        }
+
+        function postMessage(obj) {
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage(obj);
+                logStatus('Sent: ' + obj.cmd + (obj.smiles ? ' [' + obj.smiles + ']' : (obj.cid ? ' [' + obj.cid + ']' : '')));
+            } else {
+                setHUD('WebView2 not available');
+            }
+        }
+
+        function renderTabs() {
+            const bar = document.getElementById('tabs');
+            bar.innerHTML = '';
+            tabs.forEach(tab => {
+                const el = document.createElement('div');
+                el.className = 'tabbtn' + (tab.id === activeTabId ? ' active' : '');
+                el.title = (tab.source && tab.source.type === 'smiles') ? tab.source.value : tab.label;
+
+                const label = document.createElement('span');
+                label.className = 'tablabel';
+                label.textContent = tab.label;
+
+                const close = document.createElement('button');
+                close.className = 'tabclose';
+                close.textContent = '✕';
+                close.onclick = (e) => { e.stopPropagation(); closeTab(tab.id); };
+
+                el.onclick = () => { activateTab(tab.id); };
+
+                el.appendChild(label);
+                el.appendChild(close);
+                bar.appendChild(el);
+            });
+        }
+
+        function createOrActivateTab(label, smiles, cid) {
+            const existing = tabs.find(t => {
+                if (!t.source) return false;
+                const s = t.source;
+                return (s.type === 'smiles' && smiles && s.value === smiles) ||
+                    (s.type === 'cid' && cid && s.value === cid);
+            });
+            if (existing) { activateTab(existing.id); return existing.id; }
+
+            let placeholder = tabs.find(t => t.label === label && !t.source);
+            if (placeholder) { activateTab(placeholder.id); return placeholder.id; }
+
+            const id = nextTabId++;
+            const source = (smiles && smiles.length > 0)
+                ? { type: 'smiles', value: smiles }
+                : (cid ? { type: 'cid', value: cid } : null);
+            tabs.push({ id, label, source });
+            renderTabs();
+            return id;
+        }
+
+        function activateTab(id) {
+            activeTabId = id;
+            renderTabs();
+
+            const tab = tabs.find(t => t.id === id);
+            if (!tab) return;
+
+            if (viewer) { viewer.clear(); model = null; }
+
+            if (tab.source && tab.source.type === 'smiles') {
+                postMessage({ cmd: 'loadSmiles', smiles: tab.source.value });
+            } else if (tab.source && tab.source.type === 'cid') {
+                postMessage({ cmd: 'loadCid', cid: tab.source.value });
+            } else {
+                document.getElementById('isoResults').textContent = 'Searching...';
+                pendingTabId = id;
+                postMessage({ cmd: 'queryFormulaOnline', formula: tab.label });
+                setHUD('Waiting for search results...');
+            }
+        }
+
+        function closeTab(id) {
+            const idx = tabs.findIndex(t => t.id === id);
+            if (idx < 0) return;
+            const wasActive = (tabs[idx].id === activeTabId);
+            tabs.splice(idx, 1);
+            if (wasActive) {
+                if (tabs.length > 0) {
+                    activateTab(tabs[tabs.length - 1].id);
+                } else {
+                    renderTabs();
+                    setHUD('No tabs. Use Search to add a molecule.');
+                    if (viewer) { viewer.clear(); model = null; }
+                }
+            } else {
+                renderTabs();
+            }
+        }
+
+        document.getElementById('btnFormula').addEventListener('click', () => {
+            const f = document.getElementById('formulaInput').value.trim();
+            if (!f) return;
+            document.getElementById('isoResults').textContent = 'Searching...';
+
+            let tab = tabs.find(t => t.label === f && !t.source);
+            let id;
+            if (tab) {
+                id = tab.id;
+            } else {
+                id = nextTabId++;
+                tabs.push({ id, label: f, source: null });
+            }
+            pendingTabId = id;
+            activateTab(id);
+
+            postMessage({ cmd: 'queryFormulaOnline', formula: f });
+        });
+
+        document.getElementById('formulaInput').addEventListener('keydown', e => {
+            if (e.key === 'Enter') document.getElementById('btnFormula').click();
+        });
+
+        (function init() {
+            const id = nextTabId++;
+            tabs.push({ id, label: 'H2O', source: { type: 'smiles', value: 'O' } });
+            activateTab(id);
+        })();
     </script>
 </body>
 </html>
