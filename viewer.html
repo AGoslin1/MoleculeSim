@@ -177,6 +177,13 @@
             margin: 4px 0;
         }
 
+        .infoRow {
+            font-size: 12px;
+            color: #ddd;
+            margin: 4px 0;
+            line-height: 1.25;
+        }
+
         .sep {
             height: 1px;
             background: #333;
@@ -231,9 +238,20 @@
 
         <div class="sep"></div>
 
+        <!-- Information section (per-currently-loaded molecule) -->
+        <p id="infoHeader" class="sectionHeader">Information</p>
+        <div id="infoPanel" class="msg">No information loaded.</div>
+
+        <div class="sep"></div>
+
         <!-- Colors legend -->
         <p id="legendHeader" class="sectionHeader">Colors</p>
         <div id="legendContainer" class="msg">Loaded elements and their colors will appear here.</div>
+
+        <!-- Wikipedia summary inserted here -->
+        <div class="sep"></div>
+        <p id="wikiHeader" class="sectionHeader">Summary</p>
+        <div id="wikiIntro" class="msg">No summary loaded.</div>
 
         <div class="sep"></div>
         <div id="statusLine">Idle</div>
@@ -247,6 +265,10 @@
         let activeTabId = null;
         let nextTabId = 1;
         let pendingTabId = null;
+
+        // Persistent merged info object for the currently displayed molecule.
+        // Incoming partial messages (frame.info or PubChem info) will be merged into this.
+        let currentInfo = {};
 
         function setHUD(text) { document.getElementById('hud').textContent = text; }
         function logStatus(text) { document.getElementById('statusLine').textContent = text; console.log(text); }
@@ -356,6 +378,44 @@
             });
         }
 
+        // Fetch the first-paragraph summary from Wikipedia.
+        async function fetchWikipediaIntro(title) {
+            const introEl = document.getElementById('wikiIntro');
+            if (!introEl) return;
+            if (!title) { introEl.textContent = 'No title provided.'; return; }
+            introEl.textContent = 'Loading...';
+
+            const restUrl = 'https://en.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(title);
+            try {
+                let resp = await fetch(restUrl, { headers: { 'Accept': 'application/json' } });
+                if (resp.ok) {
+                    const j = await resp.json();
+                    if (j.extract) { introEl.textContent = j.extract; return; }
+                }
+
+                const searchUrl = 'https://en.wikipedia.org/w/api.php?action=query&format=json&list=search&srsearch='
+                    + encodeURIComponent(title) + '&origin=*';
+                resp = await fetch(searchUrl);
+                if (!resp.ok) { introEl.textContent = 'No summary found.'; return; }
+                const sj = await resp.json();
+                const sr = sj.query && sj.query.search && sj.query.search[0];
+                if (!sr || !sr.title) { introEl.textContent = 'No summary found.'; return; }
+
+                const bestTitle = sr.title;
+                resp = await fetch('https://en.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(bestTitle), { headers: { 'Accept': 'application/json' } });
+                if (resp.ok) {
+                    const bj = await resp.json();
+                    introEl.textContent = bj.extract || 'No summary available.';
+                    return;
+                } else {
+                    introEl.textContent = 'No summary found.';
+                }
+            } catch (err) {
+                console.error('Wikipedia fetch error', err);
+                introEl.textContent = 'Error loading summary.';
+            }
+        }
+
         function handleFrame(frame) {
             if (!ensureViewer()) return;
             buildModelOnce(frame);
@@ -371,9 +431,28 @@
                     container.textContent = '';
                 }
 
+                // If a partial info object arrives (PubChem or frame.info), merge it into currentInfo.
+                // Do not overwrite meaningful existing values with empty/null incoming values.
+                if (data && data.info) {
+                    const incoming = data.info;
+                    for (const k in incoming) {
+                        const v = incoming[k];
+                        if (typeof v === 'undefined' || v === null) continue;
+                        if (typeof v === 'string' && v.trim() === '') continue;
+                        // arrays: accept empty arrays as valid only if they carry something; skip if length==0
+                        if (Array.isArray(v) && v.length === 0) continue;
+                        currentInfo[k] = v;
+                    }
+                    renderInfo(currentInfo);
+                }
+
+                // Frame (atoms + optional bonds + optional info) — render visualization.
                 if (data && data.atoms) {
                     handleFrame(data);
-                } else if (data && (data.isomers || data.error || data.query)) {
+                }
+
+                // Isomer list response
+                if (data && (data.isomers || data.error || data.query)) {
                     renderIsomers(data);
                 }
             });
@@ -395,17 +474,19 @@
             if (pendingTabId !== null && first) {
                 const tab = tabs.find(t => t.id === pendingTabId);
                 if (tab) {
+                    // update placeholder tab label and source but do NOT re-activate — that would clear currentInfo
                     tab.label = first.name ? first.name : (first.smiles || ('CID ' + first.cid));
-                    if (first.smiles && first.smiles.length > 0) {
-                        tab.source = { type: 'smiles', value: first.smiles };
-                    } else if (first.cid) {
+                    // Prefer CID when available so native side can provide full PubChem info
+                    if (first.cid) {
                         tab.source = { type: 'cid', value: first.cid };
+                    } else if (first.smiles && first.smiles.length > 0) {
+                        tab.source = { type: 'smiles', value: first.smiles };
                     }
-                    activateTab(tab.id);
                 }
                 pendingTabId = null;
             }
 
+            // Render only buttons for isomers; properties appear in the right-hand Information panel
             list.forEach(iso => {
                 const div = document.createElement('div');
                 div.className = 'isoEntry';
@@ -413,15 +494,19 @@
                 btn.className = 'isoBtn';
                 btn.textContent = (iso.name ? iso.name : ('CID ' + iso.cid)) + (iso.smiles ? (' [' + iso.smiles + ']') : '');
                 btn.onclick = () => {
+                    // prefer CID when present
+                    const sourceCid = (iso.cid && iso.cid !== 0) ? iso.cid : null;
+                    const sourceSmiles = (iso.smiles && iso.smiles.length > 0) ? iso.smiles : null;
                     const id = createOrActivateTab(
                         iso.name ? iso.name : (iso.smiles || ('CID ' + iso.cid)),
-                        iso.smiles,
-                        iso.cid
+                        // pass smiles param only if no CID
+                        sourceCid ? null : sourceSmiles,
+                        sourceCid
                     );
                     const tab = tabs.find(t => t.id === id);
                     if (tab) {
-                        if (iso.smiles && iso.smiles.length > 0) tab.source = { type: 'smiles', value: iso.smiles };
-                        else if (iso.cid) tab.source = { type: 'cid', value: iso.cid };
+                        if (sourceCid) tab.source = { type: 'cid', value: sourceCid };
+                        else if (sourceSmiles) tab.source = { type: 'smiles', value: sourceSmiles };
                     }
                     activateTab(id);
                 };
@@ -430,6 +515,68 @@
             });
 
             logStatus('Received result for ' + (payload.query || ''));
+        }
+
+        // Render the Information panel for the currently loaded molecule (full labels)
+        // NOTE: do not display SMILES, CID or raw bonds list here per user request.
+        function renderInfo(info) {
+            const panel = document.getElementById('infoPanel');
+            if (!panel) return;
+            panel.innerHTML = '';
+
+            if (!info || Object.keys(info).length === 0) {
+                panel.textContent = 'No information loaded.';
+                return;
+            }
+
+            const rows = [];
+
+            if (info.name) rows.push({ label: 'Name', value: info.name });
+            if (info.formula) rows.push({ label: 'Molecular formula', value: info.formula });
+            if (typeof info.molecularWeight !== 'undefined' && info.molecularWeight !== null && Number(info.molecularWeight) !== 0) {
+                rows.push({ label: 'Molecular Weight', value: Number(info.molecularWeight).toFixed(4) });
+            }
+            if (typeof info.heavyAtomCount !== 'undefined' && info.heavyAtomCount !== null) {
+                rows.push({ label: 'Heavy atom count', value: String(info.heavyAtomCount) });
+            }
+            if (typeof info.rotatableBondCount !== 'undefined' && info.rotatableBondCount !== null) {
+                rows.push({ label: 'Rotatable bonds', value: String(info.rotatableBondCount) });
+            }
+
+            if (typeof info.bondCount !== 'undefined' && info.bondCount !== null) {
+                rows.push({ label: 'Total bond count', value: String(info.bondCount) });
+            }
+
+            // bondOrderCounts expected as [single,double,triple]
+            if (Array.isArray(info.bondOrderCounts) && info.bondOrderCounts.length >= 3) {
+                const a = info.bondOrderCounts;
+                rows.push({
+                    label: 'Bond order counts (single / double / triple)',
+                    value: a[0] + ' / ' + a[1] + ' / ' + a[2]
+                });
+            }
+
+            // Skip showing raw bonds list, SMILES and CID per your request.
+
+            if (rows.length === 0) {
+                panel.textContent = 'No information available for this molecule.';
+                return;
+            }
+
+            rows.forEach(r => {
+                const d = document.createElement('div');
+                d.className = 'infoRow';
+                const lbl = document.createElement('div');
+                lbl.style.color = '#9aa';
+                lbl.style.fontSize = '11px';
+                lbl.textContent = r.label + ':';
+                const val = document.createElement('div');
+                val.style.color = '#ddd';
+                val.textContent = r.value;
+                d.appendChild(lbl);
+                d.appendChild(val);
+                panel.appendChild(d);
+            });
         }
 
         function postMessage(obj) {
@@ -479,9 +626,7 @@
             if (placeholder) { activateTab(placeholder.id); return placeholder.id; }
 
             const id = nextTabId++;
-            const source = (smiles && smiles.length > 0)
-                ? { type: 'smiles', value: smiles }
-                : (cid ? { type: 'cid', value: cid } : null);
+            const source = (cid) ? { type: 'cid', value: cid } : (smiles ? { type: 'smiles', value: smiles } : null);
             tabs.push({ id, label, source });
             renderTabs();
             return id;
@@ -496,6 +641,12 @@
 
             if (viewer) { viewer.clear(); model = null; }
 
+            // Clear/mark info when starting a new load so stale values aren't shown
+            currentInfo = {};
+            const infoPanel = document.getElementById('infoPanel');
+            if (infoPanel) infoPanel.textContent = 'Loading...';
+
+            // Load molecule (existing behavior)
             if (tab.source && tab.source.type === 'smiles') {
                 postMessage({ cmd: 'loadSmiles', smiles: tab.source.value });
             } else if (tab.source && tab.source.type === 'cid') {
@@ -506,6 +657,9 @@
                 postMessage({ cmd: 'queryFormulaOnline', formula: tab.label });
                 setHUD('Waiting for search results...');
             }
+
+            // Fetch Wikipedia intro for the tab label (best-effort)
+            fetchWikipediaIntro(tab.label);
         }
 
         function closeTab(id) {
@@ -541,6 +695,11 @@
             }
             pendingTabId = id;
             activateTab(id);
+
+            // Clear info while searching
+            currentInfo = {};
+            const infoPanel = document.getElementById('infoPanel');
+            if (infoPanel) infoPanel.textContent = 'Loading...';
 
             postMessage({ cmd: 'queryFormulaOnline', formula: f });
         });

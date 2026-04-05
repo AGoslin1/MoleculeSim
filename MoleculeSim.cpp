@@ -45,7 +45,8 @@ static std::wstring JsonEscape(const std::wstring& w) {
     for (wchar_t c : w) {
         switch (c) {
         case L'\"': o << L"\\\""; break;
-        case L'\\': o << L"\\\\"; break;
+        case L'\\': o << L"\\\\";
+            break;
         case L'\n': o << L"\\n"; break;
         case L'\r': o << L"\\r"; break;
         case L'\t': o << L"\\t"; break;
@@ -53,6 +54,64 @@ static std::wstring JsonEscape(const std::wstring& w) {
         }
     }
     return o.str();
+}
+
+// Post info about a PubChemCompound to the WebView (shown in right-hand Information panel)
+static void PostInfoToWebView(const PubChemCompound& c) {
+    if (!g_webview) return;
+
+    // Count bond orders (1/2/3) and total bonds
+    int bondCount = static_cast<int>(c.bonds.size());
+    int bondOrdersCount[4] = { 0, 0, 0, 0 }; // index by order (1..3)
+    for (const auto& b : c.bonds) {
+        int ord = b.order;
+        if (ord < 1) ord = 1;
+        if (ord > 3) ord = 3;
+        bondOrdersCount[ord]++;
+    }
+
+    std::wstringstream js;
+    js << L"{\"info\":{";
+    js << L"\"cid\":" << c.cid;
+    js << L",\"name\":\"" << JsonEscape(c.name) << L"\"";
+    js << L",\"smiles\":\"" << JsonEscape(c.smiles) << L"\"";
+    js << L",\"formula\":\"" << JsonEscape(c.formula) << L"\"";
+    js << L",\"molecularWeight\":" << c.molecularWeight;
+    js << L",\"heavyAtomCount\":" << c.heavyAtomCount;
+    js << L",\"rotatableBondCount\":" << c.rotatableBondCount;
+    js << L",\"bondCount\":" << bondCount;
+    js << L",\"bondOrderCounts\":[" << bondOrdersCount[1] << L"," << bondOrdersCount[2] << L"," << bondOrdersCount[3] << L"]";
+
+    // Include bonds array (a1,a2 are 0-based indices)
+    js << L",\"bonds\":[";
+    for (size_t i = 0; i < c.bonds.size(); ++i) {
+        const auto& b = c.bonds[i];
+        js << L"{\"a1\":" << b.a1 << L",\"a2\":" << b.a2 << L",\"order\":" << b.order << L"}";
+        if (i + 1 < c.bonds.size()) js << L",";
+    }
+    js << L"]";
+
+    js << L"}}";
+    g_webview->PostWebMessageAsJson(js.str().c_str());
+}
+
+// Post minimal info when only a SMILES string is loaded (no PubChem record)
+static void PostInfoToWebViewForSmiles(const std::wstring& smiles) {
+    if (!g_webview) return;
+    std::wstringstream js;
+    js << L"{\"info\":{";
+    js << L"\"cid\":0";
+    js << L",\"name\":\"\"";
+    js << L",\"smiles\":\"" << JsonEscape(smiles) << L"\"";
+    js << L",\"formula\":\"\"";
+    js << L",\"molecularWeight\":0";
+    js << L",\"heavyAtomCount\":0";
+    js << L",\"rotatableBondCount\":0";
+    js << L",\"bondCount\":0";
+    js << L",\"bondOrderCounts\":[0,0,0]";
+    js << L",\"bonds\":[]";
+    js << L"}}";
+    g_webview->PostWebMessageAsJson(js.str().c_str());
 }
 
 // WebView init + message handling
@@ -104,6 +163,8 @@ static void InitWebView(HWND hWnd) {
                                                     std::wstring smiles = payload.substr(sp, se - sp);
                                                     g_sim.LoadSmiles3D(smiles);
                                                     SendCurrentFrame(); // single frame
+                                                    // update right-hand Information panel
+                                                    PostInfoToWebViewForSmiles(smiles);
                                                 }
                                             }
                                         }
@@ -124,6 +185,8 @@ static void InitWebView(HWND hWnd) {
                                                     if (!c.smiles.empty()) {
                                                         g_sim.LoadSmiles3D(c.smiles);
                                                         SendCurrentFrame(); // single frame
+                                                        // publish full info to UI
+                                                        PostInfoToWebView(c);
                                                     }
                                                     else if (!c.atoms.empty()) {
                                                         std::vector<int> nums; std::vector<double> xs, ys, zs;
@@ -139,12 +202,13 @@ static void InitWebView(HWND hWnd) {
                                                         }
                                                         g_sim.LoadPubChem(nums, xs, ys, zs);
                                                         SendCurrentFrame(); // single frame
+                                                        PostInfoToWebView(c);
                                                     }
                                                 }
                                             }
                                         }
 
-                                        // 2) queryFormulaOnline: formula -> PubChem -> isomer list + auto-load
+                                        // 2) queryFormulaOnline: formula -> PubChem -> isomer list (do NOT auto-load)
                                         if (payload.find(L"\"cmd\":\"queryFormulaOnline\"") != std::wstring::npos) {
                                             const std::wstring fkey = L"\"formula\":\"";
                                             size_t fp = payload.find(fkey);
@@ -189,14 +253,18 @@ static void InitWebView(HWND hWnd) {
                                                             }
                                                         }
 
-                                                        // ... inside the queryFormulaOnline handler, where the isomer JSON is built
+                                                        // Build isomer list for UI
                                                         js << L"{\"query\":\"" << JsonEscape(formula) << L"\",\"isomers\":[";
                                                         for (size_t i = 0; i < relevant.size(); ++i) {
                                                             const auto& c = relevant[i];
                                                             js << L"{\"cid\":" << c.cid
-                                                                << L",\"name\":\"" << JsonEscape(c.name)
-                                                                << L"\",\"smiles\":\"" << JsonEscape(c.smiles)  // add missing closing quote next:
-                                                                << L"\",\"atomCount\":" << c.atoms.size()
+                                                                << L",\"name\":\"" << JsonEscape(c.name) << L"\""
+                                                                << L",\"smiles\":\"" << JsonEscape(c.smiles) << L"\""
+                                                                << L",\"atomCount\":" << c.atoms.size()
+                                                                << L",\"formula\":\"" << JsonEscape(c.formula) << L"\""
+                                                                << L",\"molecularWeight\":" << c.molecularWeight
+                                                                << L",\"heavyAtomCount\":" << c.heavyAtomCount
+                                                                << L",\"rotatableBondCount\":" << c.rotatableBondCount
                                                                 << L"}";
                                                             if (i + 1 < relevant.size()) js << L",";
                                                         }
@@ -205,27 +273,8 @@ static void InitWebView(HWND hWnd) {
                                                             << L",\"statusRecord\":" << res.statusRecord
                                                             << L"}}";
 
-                                                        // Optional: auto-load the first relevant one once
-                                                        if (!relevant.empty()) {
-                                                            const auto& first = relevant.front();
-                                                            if (!first.smiles.empty()) {
-                                                                g_sim.LoadSmiles3D(first.smiles);
-                                                                SendCurrentFrame();
-                                                            }
-                                                            else {
-                                                                std::vector<int> nums; std::vector<double> xs, ys, zs;
-                                                                nums.reserve(first.atoms.size());
-                                                                xs.reserve(first.atoms.size());
-                                                                ys.reserve(first.atoms.size());
-                                                                zs.reserve(first.atoms.size());
-                                                                for (auto const& a : first.atoms) {
-                                                                    nums.push_back(a.atomicNumber);
-                                                                    xs.push_back(a.x); ys.push_back(a.y); zs.push_back(a.z);
-                                                                }
-                                                                g_sim.LoadPubChem(nums, xs, ys, zs);
-                                                                SendCurrentFrame();
-                                                            }
-                                                        }
+                                                        // NOTE: Auto-load removed. The UI will present the isomer list and only load
+                                                        // when the user clicks an isomer (which sends loadCid/loadSmiles).
                                                     }
 
                                                     g_webview->PostWebMessageAsJson(js.str().c_str());
@@ -244,6 +293,7 @@ static void InitWebView(HWND hWnd) {
                                         g_webReady = true;
                                         g_sim.LoadSmiles3D(L"O");
                                         SendCurrentFrame();
+                                        PostInfoToWebViewForSmiles(L"O");
                                         // Stop starting any timers: no continuous frames
                                         // SetTimer(g_hWnd, TIMER_ID, TIMER_INTERVAL_MS, nullptr);
                                         return S_OK;

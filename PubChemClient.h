@@ -1,3 +1,4 @@
+
 #pragma once
 #include <string>
 #include <vector>
@@ -19,6 +20,11 @@ struct PubChemCompound {
     unsigned int cid;
     std::wstring name;
     std::wstring smiles;
+    std::wstring formula;               // new
+    double molecularWeight = 0.0;       // new
+    int heavyAtomCount = 0;             // new
+    int rotatableBondCount = 0;         // new
+
     std::vector<PubChemAtom> atoms;
     std::vector<PubChemBond> bonds;
 };

@@ -237,6 +237,39 @@ std::wstring SimulationModel::BuildJsonFrame() {
         ss << L"]";
     }
 
+    // Build info object from current atoms & bonds so the UI always receives up-to-date properties
+    {
+        int heavy = 0;
+        for (const auto& a : m_atoms) {
+            if (a.symbol != L"H") ++heavy;
+        }
+
+        int bondCount = static_cast<int>(m_bonds.size());
+        int bondOrders[4] = { 0, 0, 0, 0 };
+        for (const auto& b : m_bonds) {
+            int ord = b.order;
+            if (ord < 1) ord = 1;
+            if (ord > 3) ord = 3;
+            ++bondOrders[ord];
+        }
+
+        ss << L",\"info\":{";
+        ss << L"\"heavyAtomCount\":" << heavy;
+        ss << L",\"bondCount\":" << bondCount;
+        ss << L",\"bondOrderCounts\":[" << bondOrders[1] << L"," << bondOrders[2] << L"," << bondOrders[3] << L"]";
+
+        // include bonds array (a1,a2,order) for UI (useful for detailed display)
+        ss << L",\"bonds\":[";
+        for (size_t i = 0; i < m_bonds.size(); ++i) {
+            const auto& b = m_bonds[i];
+            ss << L"{\"a1\":" << b.a1 << L",\"a2\":" << b.a2 << L",\"order\":" << b.order << L"}";
+            if (i + 1 < m_bonds.size()) ss << L",";
+        }
+        ss << L"]";
+
+        ss << L"}";
+    }
+
     ss << L"}";
     m_resetPending = false;
     return ss.str();

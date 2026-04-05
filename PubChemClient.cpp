@@ -1,4 +1,5 @@
-﻿#include "PubChemClient.h"
+﻿
+#include "PubChemClient.h"
 #define NOMINMAX
 #include <windows.h>
 #include <winhttp.h>
@@ -308,6 +309,52 @@ static std::wstring FindSmilesInProps(const std::string& obj) {
     return L"";
 }
 
+// --------- NEW: general props[] value extractor (sval or fval) ----------
+static std::string FindPropValueInProps(const std::string& obj, const std::string& label) {
+    size_t propsPos = obj.find("\"props\"");
+    if (propsPos == std::string::npos) return "";
+    size_t lb = obj.find('[', propsPos);
+    if (lb == std::string::npos) return "";
+    size_t afterProps = 0;
+    std::string propsArray = ExtractArrayObjectBlock(obj, lb, afterProps);
+    if (propsArray.empty()) return "";
+    auto propObjs = SplitTopLevelObjects(propsArray);
+    for (auto& prop : propObjs) {
+        if (prop.find("\"label\"") == std::string::npos) continue;
+        // Loose match: label appears somewhere in the label string
+        if (prop.find(label) == std::string::npos) continue;
+
+        // Prefer string sval
+        size_t svalKey = prop.find("\"sval\"");
+        if (svalKey != std::string::npos) {
+            size_t colon = prop.find(':', svalKey);
+            if (colon != std::string::npos) {
+                size_t firstQuote = prop.find('"', colon);
+                if (firstQuote != std::string::npos) {
+                    size_t secondQuote = prop.find('"', firstQuote + 1);
+                    if (secondQuote != std::string::npos)
+                        return prop.substr(firstQuote + 1, secondQuote - firstQuote - 1);
+                }
+            }
+        }
+        // Otherwise try floating value fval
+        size_t fvalKey = prop.find("\"fval\"");
+        if (fvalKey != std::string::npos) {
+            size_t colon = prop.find(':', fvalKey);
+            if (colon != std::string::npos) {
+                size_t start = colon + 1;
+                while (start < prop.size() && isspace((unsigned char)prop[start])) ++start;
+                size_t end = start;
+                while (end < prop.size() &&
+                    (isdigit((unsigned char)prop[end]) || prop[end] == '.' || prop[end] == '-' ||
+                        prop[end] == 'E' || prop[end] == 'e' || prop[end] == '+')) ++end;
+                if (end > start) return prop.substr(start, end - start);
+            }
+        }
+    }
+    return "";
+}
+
 static std::vector<PubChemCompound> ParseRecord(const std::string& json) {
     std::vector<PubChemCompound> compounds;
     size_t pc = json.find("\"PC_Compounds\"");
@@ -318,6 +365,14 @@ static std::vector<PubChemCompound> ParseRecord(const std::string& json) {
     std::string arrayBlock = ExtractArrayObjectBlock(json, arrStart, afterArray);
     if (arrayBlock.empty()) return compounds;
     auto objs = SplitTopLevelObjects(arrayBlock);
+
+    // small atomic weight table for common elements (index by atomic number)
+    static const double atomicWeights[] = {
+        0.0, 1.00794, 4.002602, 6.941, 9.012182, 10.811, 12.0107, 14.0067, 15.9994, 18.9984032, 20.1797,
+        22.98976928, 24.3050, 26.9815386, 28.0855, 30.973762, 32.065, 35.453, 39.948, 39.0983, 40.078,
+        44.955912, 47.867, 50.9415, 51.9961, 54.938045, 55.845, 58.933195, 58.6934, 63.546, 65.38,
+        69.723, 72.64, 74.92160, 78.96, 79.904, 83.798
+    };
 
     for (auto& obj : objs) {
         PubChemCompound c{};
@@ -344,6 +399,18 @@ static std::vector<PubChemCompound> ParseRecord(const std::string& json) {
 
         // SMILES (prefer props scanning – tolerant to spaces)
         c.smiles = FindSmilesInProps(obj);
+
+        // Try to extract molecular formula and molecular weight from props
+        {
+            std::string f = FindPropValueInProps(obj, "Molecular Formula");
+            if (f.empty()) f = FindPropValueInProps(obj, "MolecularFormula");
+            if (!f.empty()) c.formula = Utf8ToW(f);
+
+            std::string mw = FindPropValueInProps(obj, "Molecular Weight");
+            if (mw.empty()) mw = FindPropValueInProps(obj, "MolecularWeight");
+            if (mw.empty()) mw = FindPropValueInProps(obj, "Molecular Mass");
+            if (!mw.empty()) c.molecularWeight = strtod(mw.c_str(), nullptr);
+        }
 
         // Atoms & coords
         auto elements = ParseIntArray(obj, "\"element\"");
@@ -375,6 +442,32 @@ static std::vector<PubChemCompound> ParseRecord(const std::string& json) {
             if (b.a1 >= 0 && b.a2 >= 0 &&
                 b.a1 < (int)c.atoms.size() && b.a2 < (int)c.atoms.size())
                 c.bonds.push_back(b);
+        }
+
+        // Compute heavy atom count (non-hydrogen)
+        int heavy = 0;
+        for (auto& a : c.atoms) if (a.atomicNumber != 1) ++heavy;
+        c.heavyAtomCount = heavy;
+
+        // If molecularWeight not present, estimate from atomic numbers using table above
+        if (c.molecularWeight <= 0.0) {
+            double sum = 0.0;
+            for (auto& a : c.atoms) {
+                int z = a.atomicNumber;
+                if (z > 0 && z < (int)(sizeof(atomicWeights) / sizeof(atomicWeights[0])))
+                    sum += atomicWeights[z];
+                else
+                    sum += 12.0; // fallback estimate
+            }
+            c.molecularWeight = sum;
+        }
+
+        // Rotatable bond count (try props)
+        {
+            std::string rb = FindPropValueInProps(obj, "Rotatable Bond Count");
+            if (rb.empty()) rb = FindPropValueInProps(obj, "Rotatable Bonds");
+            if (rb.empty()) rb = FindPropValueInProps(obj, "rotatableBondCount");
+            if (!rb.empty()) c.rotatableBondCount = (int)strtol(rb.c_str(), nullptr, 10);
         }
 
         if (c.cid != 0) compounds.push_back(c);
