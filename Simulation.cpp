@@ -7,7 +7,7 @@
 #include <numeric>
 #include <algorithm>
 
-//Element colors (CPK-ish)
+//Element colours
 static const std::unordered_map<std::wstring, std::wstring> kElementColors = {
     {L"H",L"#FFFFFF"},{L"He",L"#D9FFFF"},{L"Li",L"#CC80FF"},{L"Be",L"#C2FF00"},{L"B",L"#FFB5B5"},
     {L"C",L"#909090"},{L"N",L"#3050F8"},{L"O",L"#FF0D0D"},{L"F",L"#90E050"},{L"Ne",L"#B3E3F5"},
@@ -116,12 +116,12 @@ void SimulationModel::LoadSmiles(const std::wstring& smiles) {
         AddAtom(L"H", 0.4, 0, 0);
     }
     else {
-        AddAtom(L"C", 0, 0, 0); // fallback dummy
+        AddAtom(L"C", 0, 0, 0); 
     }
     m_resetPending = true;
 }
 
-// Promote purely flat coords to a fake 3D wiggle
+
 void SimulationModel::PromoteFlatTo3D(std::vector<int>& atomicNumbers,
     std::vector<double>& xs,
     std::vector<double>& ys,
@@ -131,7 +131,7 @@ void SimulationModel::PromoteFlatTo3D(std::vector<int>& atomicNumbers,
 
     double maxZ = 0.0;
     for (double z : zs) maxZ = std::max(maxZ, std::fabs(z));
-    if (maxZ > 1e-5) return; // already has depth
+    if (maxZ > 1e-5) return; 
 
     double amp = 0.4;
     for (size_t i = 0; i < n; ++i)
@@ -157,13 +157,13 @@ void SimulationModel::LoadPubChem(const std::vector<int>& atomicNumbers,
     std::vector<int> nums = atomicNumbers;
     std::vector<double> xbuf = xs, ybuf = ys, zbuf = zs;
 
-    // Keep 3D from OpenBabel; promote only flat PubChem records
+
     PromoteFlatTo3D(nums, xbuf, ybuf, zbuf);
 
     for (size_t i = 0; i < n; ++i)
         AddAtom(AtomicNumberToSymbol(nums[i]), xbuf[i], ybuf[i], zbuf[i]);
 
-    // Optional bonds
+
     if (bA1 && bA2 && bOrder) {
         size_t nb = std::min(bA1->size(), bA2->size());
         m_bonds.reserve(nb);
@@ -183,7 +183,6 @@ void SimulationModel::LoadSmiles3D(const std::wstring& smiles) {
     std::vector<double> xs, ys, zs;
     std::vector<int> bA1, bA2, bOrder;
 
-    // Prefer atoms+bonds from OpenBabel; fall back to atoms-only
     if (Generate3DWithBonds(smiles, nums, xs, ys, zs, bA1, bA2, bOrder) ||
         Generate3DCoordinates(smiles, nums, xs, ys, zs)) {
         if (!bA1.empty()) {
@@ -207,7 +206,6 @@ void SimulationModel::ApplyDemoMotion() {
     }
 }
 
-//JSON for WebView
 std::wstring SimulationModel::BuildJsonFrame() {
     std::wstringstream ss;
     ss << L"{\"step\":" << m_step
@@ -237,7 +235,6 @@ std::wstring SimulationModel::BuildJsonFrame() {
         ss << L"]";
     }
 
-    // Build info object from current atoms & bonds so the UI always receives up-to-date properties
     {
         int heavy = 0;
         for (const auto& a : m_atoms) {
@@ -258,7 +255,6 @@ std::wstring SimulationModel::BuildJsonFrame() {
         ss << L",\"bondCount\":" << bondCount;
         ss << L",\"bondOrderCounts\":[" << bondOrders[1] << L"," << bondOrders[2] << L"," << bondOrders[3] << L"]";
 
-        // include bonds array (a1,a2,order) for UI (useful for detailed display)
         ss << L",\"bonds\":[";
         for (size_t i = 0; i < m_bonds.size(); ++i) {
             const auto& b = m_bonds[i];

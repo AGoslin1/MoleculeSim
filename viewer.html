@@ -144,7 +144,7 @@
             gap: 8px;
         }
 
-        /* Section headers */
+        
         .sectionHeader {
             font-size: 13px;
             margin: 0;
@@ -153,23 +153,72 @@
 
         .isoEntry {
             margin-bottom: 6px;
+            overflow: visible;
+            -webkit-overflow-scrolling: touch;
         }
+
 
         .isoBtn {
             background: #2b2b2b;
             border: 1px solid #444;
             color: #ddd;
-            padding: 6px 10px;
+            padding: 8px 34px 8px 10px; 
             cursor: pointer;
             font-size: 13px;
             border-radius: 4px;
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 2; 
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: normal;
             width: 100%;
+            box-sizing: border-box;
             text-align: left;
+            position: relative; 
+            transition: max-height 160ms ease;
         }
 
             .isoBtn:hover {
                 background: #3a3a3a;
             }
+
+ 
+            .isoBtn .label {
+                display: block;
+                line-height: 1.2;
+                word-break: break-word;
+                hyphens: auto;
+            }
+
+  
+            .isoBtn .arrow {
+                position: absolute;
+                top: 6px;
+                right: 6px;
+                width: 22px;
+                height: 22px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 12px;
+                color: #bbb;
+                background: rgba(0,0,0,0.12);
+                border-radius: 4px;
+                cursor: pointer;
+                user-select: none;
+            }
+
+    
+            .isoBtn.expanded {
+                -webkit-line-clamp: unset;
+                display: block;
+                white-space: normal;
+            }
+
+                .isoBtn.expanded .arrow {
+                    transform: rotate(180deg);
+                }
 
         .msg {
             font-size: 12px;
@@ -190,7 +239,7 @@
             margin: 8px 0;
         }
 
-        /* Colors legend */
+ 
         #legendContainer {
             display: flex;
             flex-direction: column;
@@ -238,13 +287,13 @@
 
         <div class="sep"></div>
 
-        <!-- Information section (per-currently-loaded molecule) -->
+        <!-- Information section -->
         <p id="infoHeader" class="sectionHeader">Information</p>
         <div id="infoPanel" class="msg">No information loaded.</div>
 
         <div class="sep"></div>
 
-        <!-- Colors legend -->
+        <!-- Colours legend -->
         <p id="legendHeader" class="sectionHeader">Colors</p>
         <div id="legendContainer" class="msg">Loaded elements and their colors will appear here.</div>
 
@@ -266,8 +315,7 @@
         let nextTabId = 1;
         let pendingTabId = null;
 
-        // Persistent merged info object for the currently displayed molecule.
-        // Incoming partial messages (frame.info or PubChem info) will be merged into this.
+
         let currentInfo = {};
 
         function setHUD(text) { document.getElementById('hud').textContent = text; }
@@ -304,13 +352,11 @@
                 }
             }
 
-            // Model A: big spheres (per-element radii)
+  
             const sphereModel = viewer.addModel();
             sphereModel.addAtoms(atoms);
 
-            // Per-element radii (Å)
-            const radii = {
-            };
+            const radii = {};
             const R_DEFAULT = 0.40;
 
             for (let i = 0; i < atoms.length; ++i) {
@@ -319,7 +365,7 @@
                 sphereModel.setStyle({ index: i }, { sphere: { radius: r, color: a.color } });
             }
 
-            // Model B: thin sticks
+  
             const stickModel = viewer.addModel();
             stickModel.addAtoms(atomsWithBonds);
             stickModel.setStyle({}, {
@@ -342,7 +388,6 @@
                 return;
             }
 
-            // Build unique element -> color map (prefer latest color from frame)
             const map = new Map();
             frame.atoms.forEach(a => {
                 const sym = a.element;
@@ -350,14 +395,12 @@
                 if (!map.has(sym)) map.set(sym, color);
             });
 
-            // Pretty label from symbol -> name fallback
             const symbolToName = {
                 H: 'hydrogen', He: 'helium', Li: 'lithium', Be: 'beryllium', B: 'boron',
                 C: 'carbon', N: 'nitrogen', O: 'oxygen', F: 'fluorine', Ne: 'neon',
                 Na: 'sodium', Mg: 'magnesium', Al: 'aluminium', Si: 'silicon', P: 'phosphorus',
                 S: 'sulfur', Cl: 'chlorine', Ar: 'argon', K: 'potassium', Ca: 'calcium',
                 Cu: 'copper', Zn: 'zinc', Br: 'bromine', I: 'iodine', Xe: 'xenon'
-                // Keep compact; unknowns will show symbol only.
             };
 
             map.forEach((color, sym) => {
@@ -378,7 +421,6 @@
             });
         }
 
-        // Fetch the first-paragraph summary from Wikipedia.
         async function fetchWikipediaIntro(title) {
             const introEl = document.getElementById('wikiIntro');
             if (!introEl) return;
@@ -431,27 +473,22 @@
                     container.textContent = '';
                 }
 
-                // If a partial info object arrives (PubChem or frame.info), merge it into currentInfo.
-                // Do not overwrite meaningful existing values with empty/null incoming values.
                 if (data && data.info) {
                     const incoming = data.info;
                     for (const k in incoming) {
                         const v = incoming[k];
                         if (typeof v === 'undefined' || v === null) continue;
                         if (typeof v === 'string' && v.trim() === '') continue;
-                        // arrays: accept empty arrays as valid only if they carry something; skip if length==0
                         if (Array.isArray(v) && v.length === 0) continue;
                         currentInfo[k] = v;
                     }
                     renderInfo(currentInfo);
                 }
 
-                // Frame (atoms + optional bonds + optional info) — render visualization.
                 if (data && data.atoms) {
                     handleFrame(data);
                 }
 
-                // Isomer list response
                 if (data && (data.isomers || data.error || data.query)) {
                     renderIsomers(data);
                 }
@@ -474,32 +511,42 @@
             if (pendingTabId !== null && first) {
                 const tab = tabs.find(t => t.id === pendingTabId);
                 if (tab) {
-                    // update placeholder tab label and source but do NOT re-activate — that would clear currentInfo
                     tab.label = first.name ? first.name : (first.smiles || ('CID ' + first.cid));
-                    // Prefer CID when available so native side can provide full PubChem info
-                    if (first.cid) {
-                        tab.source = { type: 'cid', value: first.cid };
-                    } else if (first.smiles && first.smiles.length > 0) {
-                        tab.source = { type: 'smiles', value: first.smiles };
-                    }
+                    if (first.cid) tab.source = { type: 'cid', value: first.cid };
+                    else if (first.smiles && first.smiles.length > 0) tab.source = { type: 'smiles', value: first.smiles };
                 }
                 pendingTabId = null;
             }
 
-            // Render only buttons for isomers; properties appear in the right-hand Information panel
             list.forEach(iso => {
                 const div = document.createElement('div');
                 div.className = 'isoEntry';
+
                 const btn = document.createElement('button');
                 btn.className = 'isoBtn';
-                btn.textContent = (iso.name ? iso.name : ('CID ' + iso.cid)) + (iso.smiles ? (' [' + iso.smiles + ']') : '');
+             
+                const labelText = (iso.name ? iso.name : ('CID ' + iso.cid)) + (iso.smiles ? (' [' + iso.smiles + ']') : '');
+
+           
+                const lbl = document.createElement('span');
+                lbl.className = 'label';
+                lbl.textContent = labelText;
+
+                const arrow = document.createElement('span');
+                arrow.className = 'arrow';
+                arrow.textContent = '▾';
+           
+                arrow.onclick = (e) => {
+                    e.stopPropagation();
+                    btn.classList.toggle('expanded');
+                };
+
+             
                 btn.onclick = () => {
-                    // prefer CID when present
                     const sourceCid = (iso.cid && iso.cid !== 0) ? iso.cid : null;
                     const sourceSmiles = (iso.smiles && iso.smiles.length > 0) ? iso.smiles : null;
                     const id = createOrActivateTab(
                         iso.name ? iso.name : (iso.smiles || ('CID ' + iso.cid)),
-                        // pass smiles param only if no CID
                         sourceCid ? null : sourceSmiles,
                         sourceCid
                     );
@@ -510,6 +557,9 @@
                     }
                     activateTab(id);
                 };
+
+                btn.appendChild(lbl);
+                btn.appendChild(arrow);
                 div.appendChild(btn);
                 container.appendChild(div);
             });
@@ -517,8 +567,6 @@
             logStatus('Received result for ' + (payload.query || ''));
         }
 
-        // Render the Information panel for the currently loaded molecule (full labels)
-        // NOTE: do not display SMILES, CID or raw bonds list here per user request.
         function renderInfo(info) {
             const panel = document.getElementById('infoPanel');
             if (!panel) return;
@@ -547,7 +595,6 @@
                 rows.push({ label: 'Total bond count', value: String(info.bondCount) });
             }
 
-            // bondOrderCounts expected as [single,double,triple]
             if (Array.isArray(info.bondOrderCounts) && info.bondOrderCounts.length >= 3) {
                 const a = info.bondOrderCounts;
                 rows.push({
@@ -555,8 +602,6 @@
                     value: a[0] + ' / ' + a[1] + ' / ' + a[2]
                 });
             }
-
-            // Skip showing raw bonds list, SMILES and CID per your request.
 
             if (rows.length === 0) {
                 panel.textContent = 'No information available for this molecule.';
@@ -641,12 +686,10 @@
 
             if (viewer) { viewer.clear(); model = null; }
 
-            // Clear/mark info when starting a new load so stale values aren't shown
             currentInfo = {};
             const infoPanel = document.getElementById('infoPanel');
             if (infoPanel) infoPanel.textContent = 'Loading...';
 
-            // Load molecule (existing behavior)
             if (tab.source && tab.source.type === 'smiles') {
                 postMessage({ cmd: 'loadSmiles', smiles: tab.source.value });
             } else if (tab.source && tab.source.type === 'cid') {
@@ -658,7 +701,6 @@
                 setHUD('Waiting for search results...');
             }
 
-            // Fetch Wikipedia intro for the tab label (best-effort)
             fetchWikipediaIntro(tab.label);
         }
 
@@ -696,7 +738,6 @@
             pendingTabId = id;
             activateTab(id);
 
-            // Clear info while searching
             currentInfo = {};
             const infoPanel = document.getElementById('infoPanel');
             if (infoPanel) infoPanel.textContent = 'Loading...';

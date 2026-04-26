@@ -1,5 +1,4 @@
-﻿// moleculesim.cpp - Molecule viewer using WebView2 + PubChem + OpenBabel 3D
-
+﻿
 #define UNICODE
 #include <windows.h>
 #include <wrl.h>
@@ -14,18 +13,15 @@
 
 using Microsoft::WRL::ComPtr;
 
-// Globals
+
 static HWND g_hWnd = nullptr;
 static ComPtr<ICoreWebView2Controller> g_controller;
 static ComPtr<ICoreWebView2> g_webview;
 static bool g_webReady = false;
 static SimulationModel g_sim;
 
-// NOTE: Timer no longer used
-// static const UINT_PTR TIMER_ID = 1;
-// static const UINT TIMER_INTERVAL_MS = 50;
 
-// Helpers
+
 static std::wstring GetExeDir() {
     wchar_t exePath[MAX_PATH];
     GetModuleFileNameW(nullptr, exePath, MAX_PATH);
@@ -56,13 +52,11 @@ static std::wstring JsonEscape(const std::wstring& w) {
     return o.str();
 }
 
-// Post info about a PubChemCompound to the WebView (shown in right-hand Information panel)
 static void PostInfoToWebView(const PubChemCompound& c) {
     if (!g_webview) return;
 
-    // Count bond orders (1/2/3) and total bonds
     int bondCount = static_cast<int>(c.bonds.size());
-    int bondOrdersCount[4] = { 0, 0, 0, 0 }; // index by order (1..3)
+    int bondOrdersCount[4] = { 0, 0, 0, 0 }; 
     for (const auto& b : c.bonds) {
         int ord = b.order;
         if (ord < 1) ord = 1;
@@ -82,7 +76,6 @@ static void PostInfoToWebView(const PubChemCompound& c) {
     js << L",\"bondCount\":" << bondCount;
     js << L",\"bondOrderCounts\":[" << bondOrdersCount[1] << L"," << bondOrdersCount[2] << L"," << bondOrdersCount[3] << L"]";
 
-    // Include bonds array (a1,a2 are 0-based indices)
     js << L",\"bonds\":[";
     for (size_t i = 0; i < c.bonds.size(); ++i) {
         const auto& b = c.bonds[i];
@@ -95,7 +88,6 @@ static void PostInfoToWebView(const PubChemCompound& c) {
     g_webview->PostWebMessageAsJson(js.str().c_str());
 }
 
-// Post minimal info when only a SMILES string is loaded (no PubChem record)
 static void PostInfoToWebViewForSmiles(const std::wstring& smiles) {
     if (!g_webview) return;
     std::wstringstream js;
@@ -114,7 +106,6 @@ static void PostInfoToWebViewForSmiles(const std::wstring& smiles) {
     g_webview->PostWebMessageAsJson(js.str().c_str());
 }
 
-// WebView init + message handling
 static void InitWebView(HWND hWnd) {
     CreateCoreWebView2EnvironmentWithOptions(
         nullptr, nullptr, nullptr,
@@ -152,7 +143,6 @@ static void InitWebView(HWND hWnd) {
                                         std::wstring payload(raw);
                                         CoTaskMemFree(raw);
 
-                                        // 1) loadSmiles: presets + isomer buttons
                                         if (payload.find(L"\"cmd\":\"loadSmiles\"") != std::wstring::npos) {
                                             const std::wstring skey = L"\"smiles\":\"";
                                             size_t sp = payload.find(skey);
@@ -162,14 +152,12 @@ static void InitWebView(HWND hWnd) {
                                                 if (se != std::wstring::npos) {
                                                     std::wstring smiles = payload.substr(sp, se - sp);
                                                     g_sim.LoadSmiles3D(smiles);
-                                                    SendCurrentFrame(); // single frame
-                                                    // update right-hand Information panel
+                                                    SendCurrentFrame(); 
                                                     PostInfoToWebViewForSmiles(smiles);
                                                 }
                                             }
                                         }
 
-                                        // 1b) loadCid: load PubChem compound by CID (for entries without SMILES)
                                         if (payload.find(L"\"cmd\":\"loadCid\"") != std::wstring::npos) {
                                             const std::wstring ckey = L"\"cid\":";
                                             size_t cp = payload.find(ckey);
@@ -184,8 +172,7 @@ static void InitWebView(HWND hWnd) {
                                                     PubChemCompound c = QueryPubChemCid(cid);
                                                     if (!c.smiles.empty()) {
                                                         g_sim.LoadSmiles3D(c.smiles);
-                                                        SendCurrentFrame(); // single frame
-                                                        // publish full info to UI
+                                                        SendCurrentFrame();
                                                         PostInfoToWebView(c);
                                                     }
                                                     else if (!c.atoms.empty()) {
@@ -201,14 +188,13 @@ static void InitWebView(HWND hWnd) {
                                                             zs.push_back(a.z);
                                                         }
                                                         g_sim.LoadPubChem(nums, xs, ys, zs);
-                                                        SendCurrentFrame(); // single frame
+                                                        SendCurrentFrame(); 
                                                         PostInfoToWebView(c);
                                                     }
                                                 }
                                             }
                                         }
 
-                                        // 2) queryFormulaOnline: formula -> PubChem -> isomer list (do NOT auto-load)
                                         if (payload.find(L"\"cmd\":\"queryFormulaOnline\"") != std::wstring::npos) {
                                             const std::wstring fkey = L"\"formula\":\"";
                                             size_t fp = payload.find(fkey);
@@ -220,7 +206,6 @@ static void InitWebView(HWND hWnd) {
 
                                                     auto res = QueryPubChemFormulaRecords(formula, 3);
 
-                                                    // Build JSON back to JS for isomer panel
                                                     std::wstringstream js;
                                                     if (!res.ok) {
                                                         js << L"{\"query\":\"" << JsonEscape(formula)
@@ -231,11 +216,9 @@ static void InitWebView(HWND hWnd) {
                                                             << L"}}";
                                                     }
                                                     else {
-                                                        // Select the 3 most popular (same order as fastformula/topCids) that are significant
                                                         std::vector<PubChemCompound> relevant;
                                                         relevant.reserve(3);
 
-                                                        // Build CID -> compound map to preserve popularity ordering
                                                         std::unordered_map<unsigned int, size_t> indexByCid;
                                                         indexByCid.reserve(res.compounds.size());
                                                         for (size_t i = 0; i < res.compounds.size(); ++i) {
@@ -253,7 +236,6 @@ static void InitWebView(HWND hWnd) {
                                                             }
                                                         }
 
-                                                        // Build isomer list for UI
                                                         js << L"{\"query\":\"" << JsonEscape(formula) << L"\",\"isomers\":[";
                                                         for (size_t i = 0; i < relevant.size(); ++i) {
                                                             const auto& c = relevant[i];
@@ -273,8 +255,6 @@ static void InitWebView(HWND hWnd) {
                                                             << L",\"statusRecord\":" << res.statusRecord
                                                             << L"}}";
 
-                                                        // NOTE: Auto-load removed. The UI will present the isomer list and only load
-                                                        // when the user clicks an isomer (which sends loadCid/loadSmiles).
                                                     }
 
                                                     g_webview->PostWebMessageAsJson(js.str().c_str());
@@ -294,8 +274,6 @@ static void InitWebView(HWND hWnd) {
                                         g_sim.LoadSmiles3D(L"O");
                                         SendCurrentFrame();
                                         PostInfoToWebViewForSmiles(L"O");
-                                        // Stop starting any timers: no continuous frames
-                                        // SetTimer(g_hWnd, TIMER_ID, TIMER_INTERVAL_MS, nullptr);
                                         return S_OK;
                                     }).Get(),
                                         &navToken);
@@ -310,7 +288,6 @@ static void InitWebView(HWND hWnd) {
             }).Get());
 }
 
-// Window procedure
 static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_SIZE:
@@ -321,23 +298,14 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         }
         return 0;
 
-        // Remove continuous animation frames
-        // case WM_TIMER:
-        //     if (wParam == TIMER_ID) {
-        //         g_sim.Advance(1);
-        //         SendCurrentFrame();
-        //     }
-        //     return 0;
 
     case WM_DESTROY:
-        // KillTimer(hWnd, TIMER_ID); // not started anymore
         PostQuitMessage(0);
         return 0;
     }
     return DefWindowProcW(hWnd, msg, wParam, lParam);
 }
 
-// Entry point unchanged
 int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int) {
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 

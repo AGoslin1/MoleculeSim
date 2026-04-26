@@ -12,7 +12,7 @@
 
 #pragma comment(lib, "winhttp.lib")
 
-// ------------------ Utilities ------------------
+// Utilities 
 static std::wstring Utf8ToW(const std::string& s) {
     if (s.empty()) return L"";
     int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), nullptr, 0);
@@ -21,7 +21,6 @@ static std::wstring Utf8ToW(const std::string& s) {
     return out;
 }
 
-// Forward declarations used by QueryPubChemCid
 static bool HttpGet(const std::wstring& host,
     const std::wstring& path,
     std::string& body,
@@ -99,7 +98,6 @@ static bool HttpGet(const std::wstring& host,
     return true;
 }
 
-// ------------------ Parsing helpers ------------------
 static std::vector<unsigned int> ParseCIDArray(const std::string& json) {
     std::vector<unsigned int> cids;
     size_t idList = json.find("\"IdentifierList\"");
@@ -187,7 +185,6 @@ static std::vector<std::string> SplitTopLevelObjects(const std::string& arrayBlo
 static std::wstring FindStringValue(const std::string& obj,
     const std::string& label,
     const std::string& name) {
-    // this is still used for IUPAC names
     std::string patLabel = "\"label\"";
     std::string patName = "\"name\"";
     std::string patSval = "\"sval\"";
@@ -196,12 +193,10 @@ static std::wstring FindStringValue(const std::string& obj,
     while (pos != std::string::npos) {
         size_t labelPos = obj.find("\"" + label + "\"", pos);
         if (labelPos != std::string::npos) {
-            // within the same urn object, check for name
             size_t urnEnd = obj.find("}", pos);
             if (urnEnd == std::string::npos) urnEnd = obj.size();
             size_t namePos = obj.find("\"" + name + "\"", pos);
             if (namePos != std::string::npos && namePos < urnEnd) {
-                // now seek sval after this block
                 size_t svalPos = obj.find(patSval, urnEnd);
                 if (svalPos != std::string::npos) {
                     size_t colon = obj.find(':', svalPos);
@@ -222,7 +217,6 @@ static std::wstring FindStringValue(const std::string& obj,
     return L"";
 }
 
-// atomic arrays
 static std::vector<int> ParseIntArray(const std::string& obj, const char* key) {
     std::vector<int> vals;
     size_t kp = obj.find(key);
@@ -271,9 +265,7 @@ static std::vector<double> ParseDoubleArray(const std::string& obj, const char* 
     return vals;
 }
 
-// --------- NEW: explicitly search props[] for SMILES Absolute or Connectivity ----------
 static std::wstring FindSmilesInProps(const std::string& obj) {
-    // Find "props" array inside this PC_Compound object
     size_t propsPos = obj.find("\"props\"");
     if (propsPos == std::string::npos) return L"";
 
@@ -286,7 +278,6 @@ static std::wstring FindSmilesInProps(const std::string& obj) {
 
     auto propObjs = SplitTopLevelObjects(propsArray);
     for (auto& prop : propObjs) {
-        // require this prop to talk about SMILES and Absolute/Connectivity
         if (prop.find("\"label\"") == std::string::npos) continue;
         if (prop.find("SMILES") == std::string::npos) continue;
         if (prop.find("\"name\"") == std::string::npos) continue;
@@ -294,7 +285,6 @@ static std::wstring FindSmilesInProps(const std::string& obj) {
             prop.find("Connectivity") == std::string::npos)
             continue;
 
-        // Now find sval (handle spaces flexibly)
         size_t svalKey = prop.find("\"sval\"");
         if (svalKey == std::string::npos) continue;
         size_t colon = prop.find(':', svalKey);
@@ -309,7 +299,6 @@ static std::wstring FindSmilesInProps(const std::string& obj) {
     return L"";
 }
 
-// --------- NEW: general props[] value extractor (sval or fval) ----------
 static std::string FindPropValueInProps(const std::string& obj, const std::string& label) {
     size_t propsPos = obj.find("\"props\"");
     if (propsPos == std::string::npos) return "";
@@ -321,10 +310,9 @@ static std::string FindPropValueInProps(const std::string& obj, const std::strin
     auto propObjs = SplitTopLevelObjects(propsArray);
     for (auto& prop : propObjs) {
         if (prop.find("\"label\"") == std::string::npos) continue;
-        // Loose match: label appears somewhere in the label string
+        //Loose match label appears somewhere in the label string
         if (prop.find(label) == std::string::npos) continue;
 
-        // Prefer string sval
         size_t svalKey = prop.find("\"sval\"");
         if (svalKey != std::string::npos) {
             size_t colon = prop.find(':', svalKey);
@@ -337,7 +325,6 @@ static std::string FindPropValueInProps(const std::string& obj, const std::strin
                 }
             }
         }
-        // Otherwise try floating value fval
         size_t fvalKey = prop.find("\"fval\"");
         if (fvalKey != std::string::npos) {
             size_t colon = prop.find(':', fvalKey);
@@ -366,7 +353,6 @@ static std::vector<PubChemCompound> ParseRecord(const std::string& json) {
     if (arrayBlock.empty()) return compounds;
     auto objs = SplitTopLevelObjects(arrayBlock);
 
-    // small atomic weight table for common elements (index by atomic number)
     static const double atomicWeights[] = {
         0.0, 1.00794, 4.002602, 6.941, 9.012182, 10.811, 12.0107, 14.0067, 15.9994, 18.9984032, 20.1797,
         22.98976928, 24.3050, 26.9815386, 28.0855, 30.973762, 32.065, 35.453, 39.948, 39.0983, 40.078,
@@ -397,10 +383,10 @@ static std::vector<PubChemCompound> ParseRecord(const std::string& json) {
         if (c.name.empty()) c.name = FindStringValue(obj, "IUPAC Name", "Systematic");
         if (c.name.empty()) c.name = FindStringValue(obj, "IUPAC Name", "Allowed");
 
-        // SMILES (prefer props scanning – tolerant to spaces)
+        // SMILES 
         c.smiles = FindSmilesInProps(obj);
 
-        // Try to extract molecular formula and molecular weight from props
+        //Try to extract molecular formula and molecular weight from props
         {
             std::string f = FindPropValueInProps(obj, "Molecular Formula");
             if (f.empty()) f = FindPropValueInProps(obj, "MolecularFormula");
@@ -412,7 +398,7 @@ static std::vector<PubChemCompound> ParseRecord(const std::string& json) {
             if (!mw.empty()) c.molecularWeight = strtod(mw.c_str(), nullptr);
         }
 
-        // Atoms & coords
+        // Atoms coords
         auto elements = ParseIntArray(obj, "\"element\"");
         auto xs = ParseDoubleArray(obj, "\"x\"");
         auto ys = ParseDoubleArray(obj, "\"y\"");
@@ -428,7 +414,7 @@ static std::vector<PubChemCompound> ParseRecord(const std::string& json) {
             c.atoms.push_back(a);
         }
 
-        // Bonds
+        //Bonds
         auto aid1 = ParseIntArray(obj, "\"aid1\"");
         auto aid2 = ParseIntArray(obj, "\"aid2\"");
         auto order = ParseIntArray(obj, "\"order\"");
@@ -444,12 +430,11 @@ static std::vector<PubChemCompound> ParseRecord(const std::string& json) {
                 c.bonds.push_back(b);
         }
 
-        // Compute heavy atom count (non-hydrogen)
+        // heavy atom count
         int heavy = 0;
         for (auto& a : c.atoms) if (a.atomicNumber != 1) ++heavy;
         c.heavyAtomCount = heavy;
 
-        // If molecularWeight not present, estimate from atomic numbers using table above
         if (c.molecularWeight <= 0.0) {
             double sum = 0.0;
             for (auto& a : c.atoms) {
@@ -457,12 +442,12 @@ static std::vector<PubChemCompound> ParseRecord(const std::string& json) {
                 if (z > 0 && z < (int)(sizeof(atomicWeights) / sizeof(atomicWeights[0])))
                     sum += atomicWeights[z];
                 else
-                    sum += 12.0; // fallback estimate
+                    sum += 12.0; 
             }
             c.molecularWeight = sum;
         }
 
-        // Rotatable bond count (try props)
+        // Rotatable bond count
         {
             std::string rb = FindPropValueInProps(obj, "Rotatable Bond Count");
             if (rb.empty()) rb = FindPropValueInProps(obj, "Rotatable Bonds");

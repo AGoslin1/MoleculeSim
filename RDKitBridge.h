@@ -10,7 +10,6 @@ bool Generate3DCoordinates(
     std::vector<double>& zs);
 
 
-// New: also return bonds (indices are 0-based; order is 1/2/3)
 bool Generate3DWithBonds(
     const std::wstring& smiles,
     std::vector<int>& atomicNumbers,

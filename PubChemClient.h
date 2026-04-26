@@ -20,10 +20,10 @@ struct PubChemCompound {
     unsigned int cid;
     std::wstring name;
     std::wstring smiles;
-    std::wstring formula;               // new
-    double molecularWeight = 0.0;       // new
-    int heavyAtomCount = 0;             // new
-    int rotatableBondCount = 0;         // new
+    std::wstring formula;           
+    double molecularWeight = 0.0;    
+    int heavyAtomCount = 0;            
+    int rotatableBondCount = 0;         
 
     std::vector<PubChemAtom> atoms;
     std::vector<PubChemBond> bonds;

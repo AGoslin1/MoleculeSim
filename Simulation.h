@@ -23,7 +23,7 @@ public:
     SimulationModel();
     void InitializeWater();
     void LoadSmiles(const std::wstring& smiles);
-    void LoadSmiles3D(const std::wstring& smiles); // uses OpenBabel via RDKitBridge
+    void LoadSmiles3D(const std::wstring& smiles);
     void LoadPubChem(const std::vector<int>& atomicNumbers,
         const std::vector<double>& xs,
         const std::vector<double>& ys,
@@ -51,7 +51,6 @@ private:
         std::vector<double>& ys,
         std::vector<double>& zs);
 
-    // (Unused helpers remain)
     void BuildLinearAlkane(const std::wstring& smiles,
         std::vector<int>& atomicNumbers,
         std::vector<int>& bA1,
