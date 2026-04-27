@@ -33,6 +33,7 @@
     <None Include="packages.config" />
     <None Include="3Dmol.js" />
     <None Include=".gitignore" />
+    <None Include="README.md" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Simulation.h">

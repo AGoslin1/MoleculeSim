@@ -148,6 +148,7 @@ xcopy /Y /I "$(ProjectDir)3Dmol.js" "$(OutDir)"</Command>
     <None Include=".gitignore" />
     <None Include="3Dmol.js" />
     <None Include="packages.config" />
+    <None Include="README.md" />
     <None Include="viewer.html" />
   </ItemGroup>
   <ItemGroup>

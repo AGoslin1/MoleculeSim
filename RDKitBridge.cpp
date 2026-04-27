@@ -8,7 +8,7 @@
 
 //fallback
 static const wchar_t* DEFAULT_OBABEL_EXE =
-L"C:\\Perogram Files\\OpenBabel-3.1.1\\obabel.exe"; 
+L"C:\\Program Files\\OpenBabel-3.1.1\\obabel.exe"; 
 
 //check file exists
 static bool FileExists(const std::wstring& p)
